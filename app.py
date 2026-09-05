@@ -338,145 +338,154 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"Lỗi tách nền: {e}")
 
-    # --- TAB 6: XOAY, LẬT & CẮT ÁNH ---
-    with tab6:
-        st.markdown("### 1. Xoay và lật hướng ảnh")
-        c_rot1, c_rot2 = st.columns([3, 1])
-        with c_rot1:
-            action = st.selectbox("Chọn thao tác xoay/lật:", [
-                ("Xoay phải 90°", "rotate_right"),
-                ("Xoay trái 90°", "rotate_left"),
-                ("Lật ngang", "flip_horizontal"),
-                ("Lật dọc", "flip_vertical")
-            ], format_func=lambda x: x[0])
-        with c_rot2:
-            st.write(" ")
-            st.write(" ")
-            if st.button("🔄 Thực hiện Xoay/Lật"):
-                rotate_or_flip_image(INPUT_PATH, OUTPUT_PATH, action=action[1])
-                update_input_image_and_refresh()
-                st.rerun()
-
-        st.markdown("---")
-        st.markdown("### 2. Cắt ảnh (Crop Image)")
-
-        crop_mode = st.radio(
-            "Chọn chế độ cắt ảnh:",
-            ["Tỉ lệ cố định (Aspect Ratio)", "Kéo thả trực quan (Canvas Drag)", "Tùy chỉnh Tọa độ / Pixel"],
-            horizontal=True
-        )
-
-        curr_img = Image.open(INPUT_PATH)
-        orig_w, orig_h = curr_img.size
-
-        # A. CẮT THEO TỈ LỆ CỐ ĐỊNH
-        if crop_mode == "Tỉ lệ cố định (Aspect Ratio)":
-            ratio_option = st.selectbox(
-                "Chọn tỉ lệ cắt:",
-                ["1:1 (Vuông)", "4:3 (Chuẩn)", "16:9 (Màn hình rộng)", "3:4 (Chân dung)", "9:16 (Story/Reels)"]
-            )
-
-            ratio_map = {
-                "1:1 (Vuông)": (1, 1),
-                "4:3 (Chuẩn)": (4, 3),
-                "16:9 (Màn hình rộng)": (16, 9),
-                "3:4 (Chân dung)": (3, 4),
-                "9:16 (Story/Reels)": (9, 16),
-            }
-            rw, rh = ratio_map[ratio_option]
-
-            target_aspect = rw / rh
-            current_aspect = orig_w / orig_h
-
-            if current_aspect > target_aspect:
-                new_w = int(orig_h * target_aspect)
-                new_h = orig_h
-            else:
-                new_w = orig_w
-                new_h = int(orig_w / target_aspect)
-
-            left = (orig_w - new_w) // 2
-            top = (orig_h - new_h) // 2
-            right = left + new_w
-            bottom = top + new_h
-
-            st.info(f"📐 Kích thước vùng cắt trung tâm đề xuất: `{new_w} x {new_h} px`")
-
-            if st.button("✂️ Áp dụng Cắt theo tỉ lệ"):
-                crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
-                update_input_image_and_refresh()
-                st.rerun()
-
-        # B. CẮT BẰNG KÉO THẢ TRÊN CANVAS
-        elif crop_mode == "Kéo thả trực quan (Canvas Drag)":
-            st.info("👉 **Hướng dẫn:** Đè giữ chuột và kéo thành một **hình chữ nhật** trên ảnh bên dưới để khoanh vùng cắt.")
-
-            disp_w = min(orig_w, 700)
-            disp_h = int(orig_h * (disp_w / orig_w))
-
-            crop_canvas = st_canvas(
-                fill_color="rgba(255, 0, 0, 0.2)",
-                stroke_color="#FF0000",
-                stroke_width=2,
-                background_image=curr_img,
-                update_streamlit=True,
-                height=disp_h,
-                width=disp_w,
-                drawing_mode="rect",
-                key="crop_canvas_widget",
-            )
-
-            current_coords = None
-            if crop_canvas.json_data is not None:
-                objects = crop_canvas.json_data.get("objects", [])
-                if len(objects) > 0:
-                    last_obj = objects[-1]
-                    if last_obj.get("type") == "rect":
-                        scale_x = orig_w / disp_w
-                        scale_y = orig_h / disp_h
-
-                        c_left = int(last_obj["left"] * scale_x)
-                        c_top = int(last_obj["top"] * scale_y)
-                        c_w = int(last_obj["width"] * scale_x)
-                        c_h = int(last_obj["height"] * scale_y)
-
-                        if abs(c_w) > 5 and abs(c_h) > 5:
-                            current_coords = (c_left, c_top, c_left + c_w, c_top + c_h)
-                            st.session_state["crop_coords_store"] = current_coords
-
-            active_coords = st.session_state.get("crop_coords_store") or current_coords
-
-            if active_coords:
-                x1, y1, x2, y2 = active_coords
-                w_box = abs(x2 - x1)
-                h_box = abs(y2 - y1)
-                st.success(f"📍 Đã ghi nhận khung cắt: X=`{min(x1, x2)}`, Y=`{min(y1, y2)}`, Rộng=`{w_box}px`, Cao=`{h_box}px`")
-
-            if st.button("✂️ Cắt Vùng Đã Chọn"):
-                target_box = st.session_state.get("crop_coords_store") or current_coords
-                if target_box:
-                    crop_image(INPUT_PATH, OUTPUT_PATH, target_box)
-                    st.session_state["crop_coords_store"] = None
+        # --- TAB 6: XOAY, LẬT & CẮT ÁNH ---
+        with tab6:
+            st.markdown("### 1. Xoay và lật hướng ảnh")
+            c_rot1, c_rot2 = st.columns([3, 1])
+            with c_rot1:
+                action = st.selectbox("Chọn thao tác xoay/lật:", [
+                    ("Xoay phải 90°", "rotate_right"),
+                    ("Xoay trái 90°", "rotate_left"),
+                    ("Lật ngang", "flip_horizontal"),
+                    ("Lật dọc", "flip_vertical")
+                ], format_func=lambda x: x[0])
+            with c_rot2:
+                st.write(" ")
+                st.write(" ")
+                if st.button("🔄 Thực hiện Xoay/Lật"):
+                    rotate_or_flip_image(INPUT_PATH, OUTPUT_PATH, action=action[1])
                     update_input_image_and_refresh()
                     st.rerun()
+
+            st.markdown("---")
+            st.markdown("### 2. Cắt ảnh (Crop Image)")
+
+            crop_mode = st.radio(
+                "Chọn chế độ cắt ảnh:",
+                ["Tỉ lệ cố định (Aspect Ratio)", "Kéo thả trực quan (Canvas Drag)", "Tùy chỉnh Tọa độ / Pixel"],
+                horizontal=True
+            )
+
+            curr_img = Image.open(INPUT_PATH)
+            orig_w, orig_h = curr_img.size
+
+            # A. CẮT THEO TỈ LỆ CỐ ĐỊNH
+            if crop_mode == "Tỉ lệ cố định (Aspect Ratio)":
+                ratio_option = st.selectbox(
+                    "Chọn tỉ lệ cắt:",
+                    ["1:1 (Vuông)", "4:3 (Chuẩn)", "16:9 (Màn hình rộng)", "3:4 (Chân dung)", "9:16 (Story/Reels)"]
+                )
+
+                ratio_map = {
+                    "1:1 (Vuông)": (1, 1),
+                    "4:3 (Chuẩn)": (4, 3),
+                    "16:9 (Màn hình rộng)": (16, 9),
+                    "3:4 (Chân dung)": (3, 4),
+                    "9:16 (Story/Reels)": (9, 16),
+                }
+                rw, rh = ratio_map[ratio_option]
+
+                target_aspect = rw / rh
+                current_aspect = orig_w / orig_h
+
+                if current_aspect > target_aspect:
+                    new_w = int(orig_h * target_aspect)
+                    new_h = orig_h
                 else:
-                    st.warning("Vui lòng kéo chuột tạo khung chữ nhật trên ảnh trước!")
+                    new_w = orig_w
+                    new_h = int(orig_w / target_aspect)
 
-        # C. CẮT THEO TỌA ĐỘ / PIXEL TÙY CHỈNH
-        else:
-            col_cr1, col_cr2 = st.columns(2)
-            with col_cr1:
-                crop_x = st.number_input("Tọa độ X bắt đầu (trái)", 0, max(0, orig_w - 1), 0)
-                crop_y = st.number_input("Tọa độ Y bắt đầu (trên)", 0, max(0, orig_h - 1), 0)
-            with col_cr2:
-                crop_w = st.number_input("Chiều rộng vùng cắt (W)", 1, orig_w - crop_x, orig_w)
-                crop_h = st.number_input("Chiều cao vùng cắt (H)", 1, orig_h - crop_y, orig_h)
+                left = (orig_w - new_w) // 2
+                top = (orig_h - new_h) // 2
+                right = left + new_w
+                bottom = top + new_h
 
-            if st.button("✂️ Áp dụng Cắt theo thông số Pixel"):
-                box = (crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
-                crop_image(INPUT_PATH, OUTPUT_PATH, box)
-                update_input_image_and_refresh()
-                st.rerun()
+                st.info(f"📐 Kích thước vùng cắt trung tâm đề xuất: `{new_w} x {new_h} px`")
+
+                if st.button("✂️ Áp dụng Cắt theo tỉ lệ"):
+                    crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
+                    update_input_image_and_refresh()
+                    st.rerun()
+
+            # B. CẮT BẰNG KÉO THẢ TRÊN CANVAS (ĐÃ SỬA LỖI MẤT TỌA ĐỘ)
+            elif crop_mode == "Kéo thả trực quan (Canvas Drag)":
+                st.info(
+                    "👉 **Hướng dẫn:** Đè giữ chuột và kéo thành một **hình chữ nhật** trên ảnh bên dưới để khoanh vùng cắt.")
+
+                disp_w = min(orig_w, 700)
+                disp_h = int(orig_h * (disp_w / orig_w))
+
+                # Tạo key động cho canvas dựa trên số lần đã crop để làm sạch canvas sau mỗi lần cắt
+                if "canvas_crop_counter" not in st.session_state:
+                    st.session_state["canvas_crop_counter"] = 0
+
+                canvas_key = f"crop_canvas_widget_{st.session_state['canvas_crop_counter']}"
+
+                crop_canvas = st_canvas(
+                    fill_color="rgba(255, 0, 0, 0.2)",
+                    stroke_color="#FF0000",
+                    stroke_width=2,
+                    background_image=curr_img,
+                    update_streamlit=True,
+                    height=disp_h,
+                    width=disp_w,
+                    drawing_mode="rect",
+                    key=canvas_key,
+                )
+
+                # Cập nhật tọa độ liên tục vào Session State
+                if crop_canvas.json_data is not None:
+                    objects = crop_canvas.json_data.get("objects", [])
+                    if len(objects) > 0:
+                        last_obj = objects[-1]
+                        if last_obj.get("type") == "rect":
+                            scale_x = orig_w / disp_w
+                            scale_y = orig_h / disp_h
+
+                            c_left = int(last_obj["left"] * scale_x)
+                            c_top = int(last_obj["top"] * scale_y)
+                            c_w = int(last_obj["width"] * scale_x)
+                            c_h = int(last_obj["height"] * scale_y)
+
+                            if abs(c_w) > 5 and abs(c_h) > 5:
+                                st.session_state["crop_coords_store"] = (c_left, c_top, c_left + c_w, c_top + c_h)
+
+                # Đọc tọa độ đã lưu trong Session State
+                saved_coords = st.session_state.get("crop_coords_store")
+
+                if saved_coords:
+                    x1, y1, x2, y2 = saved_coords
+                    w_box = abs(x2 - x1)
+                    h_box = abs(y2 - y1)
+                    st.success(
+                        f"📍 Đã khoanh vùng: X=`{min(x1, x2)}`, Y=`{min(y1, y2)}`, Rộng=`{w_box}px`, Cao=`{h_box}px`")
+
+                if st.button("✂️ Cắt Vùng Đã Chọn"):
+                    if saved_coords:
+                        crop_image(INPUT_PATH, OUTPUT_PATH, saved_coords)
+                        # Reset tọa độ và tăng counter để reset Canvas
+                        st.session_state["crop_coords_store"] = None
+                        st.session_state["canvas_crop_counter"] += 1
+                        update_input_image_and_refresh()
+                        st.rerun()
+                    else:
+                        st.warning("Vui lòng kéo chuột tạo khung chữ nhật trên ảnh trước!")
+
+            # C. CẮT THEO TỌA ĐỘ / PIXEL TÙY CHỈNH
+            else:
+                col_cr1, col_cr2 = st.columns(2)
+                with col_cr1:
+                    crop_x = st.number_input("Tọa độ X bắt đầu (trái)", 0, max(0, orig_w - 1), 0)
+                    crop_y = st.number_input("Tọa độ Y bắt đầu (trên)", 0, max(0, orig_h - 1), 0)
+                with col_cr2:
+                    crop_w = st.number_input("Chiều rộng vùng cắt (W)", 1, orig_w - crop_x, orig_w)
+                    crop_h = st.number_input("Chiều cao vùng cắt (H)", 1, orig_h - crop_y, orig_h)
+
+                if st.button("✂️ Áp dụng Cắt theo thông số Pixel"):
+                    box = (crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
+                    crop_image(INPUT_PATH, OUTPUT_PATH, box)
+                    update_input_image_and_refresh()
+                    st.rerun()
 
     # --- HIỂN THỊ KẾT QUẢ KHI XỬ LÝ XONG ---
     with col2:
