@@ -3,6 +3,7 @@ import os
 import sys
 import shutil
 import tempfile
+from PIL import Image, ImageDraw
 from pathlib import Path
 
 CURRENT_DIR = Path(__file__).resolve().parent
