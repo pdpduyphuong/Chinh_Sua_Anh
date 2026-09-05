@@ -98,7 +98,6 @@ def crop_image(input_path, output_path, crop_box):
     crop_box: tuple (left, upper, right, lower)
     """
     with Image.open(input_path) as img:
-        # Đảm bảo tọa độ nằm trong phạm vi ảnh
         w, h = img.size
         left = max(0, min(crop_box[0], w - 1))
         upper = max(0, min(crop_box[1], h - 1))
