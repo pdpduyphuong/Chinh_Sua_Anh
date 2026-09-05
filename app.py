@@ -312,11 +312,11 @@ if uploaded_file is not None:
         col_txt1, col_txt2 = st.columns(2)
         with col_txt1:
             input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
-            font_size = st.slider("Kích thước chữ (px)", 12, 150, 40)
+            font_size_ui = st.slider("Kích thước chữ (px)", 12, 200, 86)
         with col_txt2:
             font_name = st.selectbox(
                 "Kiểu Font chữ:",
-                ["Arial", "Times New Roman", "Courier New", "Segoe UI", "Calibri", "Georgia", "Tahoma", "Verdana"]
+                ["Segoe UI", "Arial", "Times New Roman", "Courier New", "Calibri", "Tahoma", "Verdana"]
             )
             text_color = st.color_picker("Màu chữ", "#FF0000")
 
@@ -327,6 +327,10 @@ if uploaded_file is not None:
         bg_width, bg_height = canvas_bg.size
         disp_width = min(bg_width, 700)
         disp_height = int(bg_height * (disp_width / bg_width))
+
+        # Tỉ lệ quy đổi giữa Canvas web và Ảnh thực tế
+        scale_ratio = bg_width / disp_width
+        actual_font_size = int(font_size_ui * scale_ratio)
 
         canvas_result = st_canvas(
             fill_color="rgba(255, 165, 0, 0.3)",
@@ -342,9 +346,9 @@ if uploaded_file is not None:
         pos_x, pos_y = 50, 50
         if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
             last_point = canvas_result.json_data["objects"][-1]
-            pos_x = int(last_point["left"] * (bg_width / disp_width))
-            pos_y = int(last_point["top"] * (bg_height / disp_height))
-            st.success(f"📍 Tọa độ chọn: X = `{pos_x}px`, Y = `{pos_y}px`")
+            pos_x = int(last_point["left"] * scale_ratio)
+            pos_y = int(last_point["top"] * scale_ratio)
+            st.success(f"📍 Tọa độ chọn: X = `{pos_x}px`, Y = `{pos_y}px` | Kích thước font thực tế: `{actual_font_size}px`")
 
         if st.button("✨ Áp Dụng Thêm Chữ"):
             if not input_text.strip():
@@ -356,10 +360,11 @@ if uploaded_file is not None:
                     text=input_text,
                     position=(pos_x, pos_y),
                     font_name=font_name,
-                    font_size=font_size,
+                    font_size=actual_font_size,  # Truyền kích thước chuẩn đã tính tỉ lệ
                     color=rgb_color
                 )
                 update_input_image_and_refresh()
+                st.success("Đã thêm chữ thành công!")
                 st.rerun()
 
     # --- TAB 4: RESIZE & UPSCALE ---
