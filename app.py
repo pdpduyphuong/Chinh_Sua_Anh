@@ -1,4 +1,6 @@
+# app.py
 import os
+import shutil
 import tempfile
 import cv2
 import numpy as np
@@ -23,6 +25,15 @@ st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
 TEMP_DIR = tempfile.gettempdir()
 INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
 OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
+
+# -------------------------------------------------------------------
+# HÀM ĐỒNG BỘ FILE ẢNH NGUỒN SAU MỖI BƯỚC CẮT / CHỈNH SỬA
+# -------------------------------------------------------------------
+def update_input_image_and_refresh():
+    """Ghi đè file output lên input để lưu lại tiến trình chỉnh sửa."""
+    if os.path.exists(OUTPUT_PATH):
+        shutil.copy(OUTPUT_PATH, INPUT_PATH)
+        st.session_state["processed_img"] = OUTPUT_PATH
 
 # -------------------------------------------------------------------
 # PHÂN TÍCH AI ĐỒNG BỘ 100% VỚI THÔNG SỐ SLIDER
@@ -115,12 +126,18 @@ st.sidebar.header("📂 Tải Ảnh Lên")
 uploaded_file = st.sidebar.file_uploader("Chọn tệp ảnh", type=["jpg", "jpeg", "png", "webp"])
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    image.save(INPUT_PATH)
+    # Nếu tải file mới lên, khởi tạo file tạm gốc
+    if "last_uploaded" not in st.session_state or st.session_state["last_uploaded"] != uploaded_file.name:
+        image = Image.open(uploaded_file)
+        image.save(INPUT_PATH)
+        st.session_state["last_uploaded"] = uploaded_file.name
+        st.session_state["processed_img"] = INPUT_PATH
+
+    image = Image.open(INPUT_PATH)
 
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Ảnh Gốc")
+        st.subheader("Ảnh Gốc / Hiện Tại")
         st.image(image, use_container_width=True)
 
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -212,7 +229,7 @@ if uploaded_file is not None:
                     dehaze=st.session_state["dehaze"],
                     sharpening=st.session_state["sharpening"]
                 )
-                st.session_state["processed_img"] = OUTPUT_PATH
+                update_input_image_and_refresh()
                 st.rerun()
 
     # --- TAB 2: BỘ LỌC MÀU ---
@@ -224,7 +241,7 @@ if uploaded_file is not None:
         )
         if st.button("Áp dụng Bộ Lọc"):
             apply_filter(INPUT_PATH, OUTPUT_PATH, filter_option)
-            st.session_state["processed_img"] = OUTPUT_PATH
+            update_input_image_and_refresh()
             st.rerun()
 
     # --- TAB 3: THÊM TEXT TƯƠNG TÁC ---
@@ -286,7 +303,7 @@ if uploaded_file is not None:
                     font_size=font_size,
                     color=rgb_color
                 )
-                st.session_state["processed_img"] = OUTPUT_PATH
+                update_input_image_and_refresh()
                 st.rerun()
 
     # --- TAB 4: RESIZE & UPSCALE ---
@@ -298,14 +315,14 @@ if uploaded_file is not None:
             h = st.number_input("Chiều cao (px)", value=image.height)
             if st.button("Thực hiện Resize"):
                 resize_standard(INPUT_PATH, OUTPUT_PATH, width=int(w), height=int(h))
-                st.session_state["processed_img"] = OUTPUT_PATH
+                update_input_image_and_refresh()
                 st.rerun()
         else:
             scale = st.selectbox("Tỉ lệ phóng to:", [2, 4])
             if st.button("Phóng to bằng AI"):
                 with st.spinner("Đang nâng cấp chất lượng..."):
                     resize_ai_upscale(INPUT_PATH, OUTPUT_PATH, scale_factor=scale)
-                    st.session_state["processed_img"] = OUTPUT_PATH
+                    update_input_image_and_refresh()
                     st.rerun()
 
     # --- TAB 5: TÁCH NỀN AI ---
@@ -315,7 +332,7 @@ if uploaded_file is not None:
             with st.spinner("Đang tách nền..."):
                 try:
                     remove_background_ai(INPUT_PATH, OUTPUT_PATH)
-                    st.session_state["processed_img"] = OUTPUT_PATH
+                    update_input_image_and_refresh()
                     st.success("Tách nền thành công!")
                     st.rerun()
                 except Exception as e:
@@ -337,7 +354,7 @@ if uploaded_file is not None:
             st.write(" ")
             if st.button("🔄 Thực hiện Xoay/Lật"):
                 rotate_or_flip_image(INPUT_PATH, OUTPUT_PATH, action=action[1])
-                st.session_state["processed_img"] = OUTPUT_PATH
+                update_input_image_and_refresh()
                 st.rerun()
 
         st.markdown("---")
@@ -387,7 +404,7 @@ if uploaded_file is not None:
 
             if st.button("✂️ Áp dụng Cắt theo tỉ lệ"):
                 crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
-                st.session_state["processed_img"] = OUTPUT_PATH
+                update_input_image_and_refresh()
                 st.rerun()
 
         # B. CẮT BẰNG KÉO THẢ TRÊN CANVAS
@@ -423,22 +440,24 @@ if uploaded_file is not None:
                         c_w = int(last_obj["width"] * scale_x)
                         c_h = int(last_obj["height"] * scale_y)
 
-                        if c_w > 5 and c_h > 5:
+                        if abs(c_w) > 5 and abs(c_h) > 5:
                             current_coords = (c_left, c_top, c_left + c_w, c_top + c_h)
                             st.session_state["crop_coords_store"] = current_coords
 
-            active_coords = st.session_state.get("crop_coords_store", current_coords)
+            active_coords = st.session_state.get("crop_coords_store") or current_coords
 
             if active_coords:
                 x1, y1, x2, y2 = active_coords
-                st.success(f"📍 Đã ghi nhận khung cắt: X=`{x1}`, Y=`{y1}`, Rộng=`{x2 - x1}px`, Cao=`{y2 - y1}px`")
+                w_box = abs(x2 - x1)
+                h_box = abs(y2 - y1)
+                st.success(f"📍 Đã ghi nhận khung cắt: X=`{min(x1, x2)}`, Y=`{min(y1, y2)}`, Rộng=`{w_box}px`, Cao=`{h_box}px`")
 
             if st.button("✂️ Cắt Vùng Đã Chọn"):
                 target_box = st.session_state.get("crop_coords_store") or current_coords
-                if target_box and (target_box[2] > target_box[0]) and (target_box[3] > target_box[1]):
+                if target_box:
                     crop_image(INPUT_PATH, OUTPUT_PATH, target_box)
-                    st.session_state["processed_img"] = OUTPUT_PATH
                     st.session_state["crop_coords_store"] = None
+                    update_input_image_and_refresh()
                     st.rerun()
                 else:
                     st.warning("Vui lòng kéo chuột tạo khung chữ nhật trên ảnh trước!")
@@ -447,8 +466,8 @@ if uploaded_file is not None:
         else:
             col_cr1, col_cr2 = st.columns(2)
             with col_cr1:
-                crop_x = st.number_input("Tọa độ X bắt đầu (trái)", 0, orig_w - 1, 0)
-                crop_y = st.number_input("Tọa độ Y bắt đầu (trên)", 0, orig_h - 1, 0)
+                crop_x = st.number_input("Tọa độ X bắt đầu (trái)", 0, max(0, orig_w - 1), 0)
+                crop_y = st.number_input("Tọa độ Y bắt đầu (trên)", 0, max(0, orig_h - 1), 0)
             with col_cr2:
                 crop_w = st.number_input("Chiều rộng vùng cắt (W)", 1, orig_w - crop_x, orig_w)
                 crop_h = st.number_input("Chiều cao vùng cắt (H)", 1, orig_h - crop_y, orig_h)
@@ -456,7 +475,7 @@ if uploaded_file is not None:
             if st.button("✂️ Áp dụng Cắt theo thông số Pixel"):
                 box = (crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
                 crop_image(INPUT_PATH, OUTPUT_PATH, box)
-                st.session_state["processed_img"] = OUTPUT_PATH
+                update_input_image_and_refresh()
                 st.rerun()
 
     # --- HIỂN THỊ KẾT QUẢ KHI XỬ LÝ XONG ---

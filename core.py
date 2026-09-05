@@ -1,3 +1,4 @@
+# core.py
 import os
 import cv2
 import numpy as np
@@ -91,18 +92,27 @@ def adjust_image_advanced(
     res_pil.save(output_path, format="PNG")
 
 # -------------------------------------------------------------------
-# 3. HÀM CẮT ÁNH (CROP IMAGE)
+# 3. HÀM CẮT ÁNH (CROP IMAGE) - ĐÃ ĐƯỢC SỬA LỖI VÙNG CẮT
 # -------------------------------------------------------------------
 def crop_image(input_path, output_path, crop_box):
     """
-    crop_box: tuple (left, upper, right, lower)
+    crop_box: tuple (x1, y1, x2, y2)
     """
     with Image.open(input_path) as img:
         w, h = img.size
-        left = max(0, min(crop_box[0], w - 1))
-        upper = max(0, min(crop_box[1], h - 1))
-        right = max(left + 1, min(crop_box[2], w))
-        lower = max(upper + 1, min(crop_box[3], h))
+        x1, y1, x2, y2 = crop_box
+
+        # Đảm bảo x1 < x2 và y1 < y2 (xử lý kéo ngược chuột)
+        left = min(x1, x2)
+        right = max(x1, x2)
+        upper = min(y1, y2)
+        lower = max(y1, y2)
+
+        # Giới hạn trong kích thước thực tế của ảnh
+        left = int(max(0, min(left, w - 1)))
+        upper = int(max(0, min(upper, h - 1)))
+        right = int(max(left + 1, min(right, w)))
+        lower = int(max(upper + 1, min(lower, h)))
 
         cropped = img.crop((left, upper, right, lower))
         cropped.save(output_path, format="PNG")
