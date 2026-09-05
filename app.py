@@ -63,7 +63,7 @@ if not HAS_CORE:
     st.stop()
 
 if not HAS_CROPPER:
-    st.warning("⚠️ Thư viện `streamlit-cropper` chưa khả dụng hoặc bị xung đột. Chức năng Cắt ảnh sẽ chuyển sang chế độ dự phòng.")
+    st.warning("⚠️ Thư viện `streamlit-cropper` chưa khả dụng. Chức năng Cắt ảnh sẽ chuyển sang chế độ dự phòng.")
 
 TEMP_DIR = tempfile.gettempdir()
 INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
@@ -341,7 +341,7 @@ if uploaded_file is not None:
                     shutil.copy(FILTER_BASE_PATH, OUTPUT_PATH)
                     st.session_state["processed_img"] = OUTPUT_PATH
                     st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
-                    st.success("Đã khôi phục về ảnh ban đầu (chưa áp dụng bộ lọc)!")
+                    st.success("Đã khôi phục về ảnh ban đầu!")
                     st.rerun()
 
     # --- TAB 3: THÊM TEXT ---
@@ -466,7 +466,7 @@ if uploaded_file is not None:
         curr_img = Image.open(INPUT_PATH).convert("RGB")
 
         if HAS_CROPPER:
-            st.info("💡 **Hướng dẫn:** Sử dụng chuột để **kéo di chuyển khung** hoặc **kéo các góc** để thay đổi kích thước vùng cắt.")
+            st.info("💡 **Hướng dẫn:** Kéo khung hoặc các góc để chỉnh vị trí cắt.")
 
             col_crp_opt1, col_crp_opt2 = st.columns(2)
             with col_crp_opt1:
@@ -505,7 +505,7 @@ if uploaded_file is not None:
                 st.rerun()
         else:
             orig_w, orig_h = curr_img.size
-            st.info("Chế độ cắt theo tỉ lệ cố định (Fallback mode):")
+            st.info("Chế độ cắt theo tỉ lệ cố định:")
             ratio_option = st.selectbox(
                 "Chọn tỉ lệ cắt mong muốn:",
                 ["1:1 (Vuông)", "4:3 (Chuẩn)", "16:9 (Màn hình rộng)", "3:4 (Chân dung)", "9:16 (Story/Reels)"]
@@ -545,7 +545,7 @@ if uploaded_file is not None:
                 st.success("Đã cắt ảnh thành công!")
                 st.rerun()
 
-    # --- KẾT QUẢ HIỂN THỊ (CỘT 2) ---
+    # --- KẾT QUẢ HIỂN THỊ ---
     with col2:
         st.subheader("Kết Quả")
         if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):
