@@ -5,7 +5,6 @@ import shutil
 import tempfile
 from pathlib import Path
 
-# Đảm bảo Python nhận diện đúng thư mục gốc chứa các module cục bộ (core.py)
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
@@ -15,7 +14,6 @@ import streamlit as st
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 
-# Import an toàn các xử lý nghiệp vụ từ module core
 try:
     from core import (
         adjust_image_advanced,
@@ -30,30 +28,27 @@ try:
     )
 except ImportError as e:
     st.error(f"❌ Lỗi khởi tạo ứng dụng (ImportError): {e}")
-    st.info("💡 **Cách xử lý:** Vui lòng kiểm tra file `core.py` và file `requirements.txt` để đảm bảo cài đủ thư viện.")
+    st.info("💡 Vui lòng kiểm tra lại file core.py và requirements.txt.")
     st.stop()
 
-# Cấu hình trang Streamlit
 st.set_page_config(page_title="PDP Photo Editor Web", layout="wide")
 st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
 
-# Đường dẫn tệp tạm thời
+# Cấu hình đường dẫn tệp tạm thời
 TEMP_DIR = tempfile.gettempdir()
 INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
 OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
+FILTER_BASE_PATH = os.path.join(TEMP_DIR, "web_filter_base_temp.png")
 
-# -------------------------------------------------------------------
-# HÀM ĐỒNG BỘ FILE ẢNH NGUỒN SAU MỖI BƯỚC CẮT / CHỈNH SỬA
-# -------------------------------------------------------------------
+
 def update_input_image_and_refresh():
-    """Ghi đè file output lên input để lưu lại tiến trình chỉnh sửa nối tiếp."""
+    """Đồng bộ file output sang input và lưu mốc khôi phục cho bộ lọc màu."""
     if os.path.exists(OUTPUT_PATH):
         shutil.copy(OUTPUT_PATH, INPUT_PATH)
+        shutil.copy(OUTPUT_PATH, FILTER_BASE_PATH)
         st.session_state["processed_img"] = OUTPUT_PATH
 
-# -------------------------------------------------------------------
-# PHÂN TÍCH AI ĐỒNG BỘ 100% VỚI THÔNG SỐ SLIDER
-# -------------------------------------------------------------------
+
 def analyze_image_ai(image_path):
     pil_img = Image.open(image_path).convert("RGB")
     img_np = np.array(pil_img)
@@ -74,7 +69,6 @@ def analyze_image_ai(image_path):
         laplacian_var = 150.0
 
     brightness_pct = round((raw_brightness / 255.0) * 100, 1)
-
     target_pct = 58.0
     suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
     suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
@@ -107,9 +101,8 @@ def analyze_image_ai(image_path):
         "sharpening": suggested_sharpening,
     }
 
-# -------------------------------------------------------------------
-# QUẢN LÝ SESSION STATE
-# -------------------------------------------------------------------
+
+# Session State
 SLIDER_KEYS = {
     "exposure": ("exp_s", 0.0),
     "contrast": ("cnt_s", 0),
@@ -133,6 +126,10 @@ if "ai_analysis" not in st.session_state:
 if "crop_coords_store" not in st.session_state:
     st.session_state["crop_coords_store"] = None
 
+if "active_filter" not in st.session_state:
+    st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
+
+
 def apply_ai_suggestions():
     if st.session_state["ai_analysis"]:
         ai = st.session_state["ai_analysis"]
@@ -141,18 +138,19 @@ def apply_ai_suggestions():
             st.session_state[param] = val
             st.session_state[sk] = val
 
-# Sidebar: Upload Tệp
+
 st.sidebar.header("📂 Tải Ảnh Lên")
 uploaded_file = st.sidebar.file_uploader("Chọn tệp ảnh", type=["jpg", "jpeg", "png", "webp"])
 
 if uploaded_file is not None:
-    # Nếu tải file mới lên, khởi tạo file tạm gốc
     if "last_uploaded" not in st.session_state or st.session_state["last_uploaded"] != uploaded_file.name:
         image = Image.open(uploaded_file)
         image.save(INPUT_PATH)
+        image.save(FILTER_BASE_PATH)
         st.session_state["last_uploaded"] = uploaded_file.name
         st.session_state["processed_img"] = INPUT_PATH
         st.session_state["crop_coords_store"] = None
+        st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
 
     image = Image.open(INPUT_PATH)
 
@@ -239,7 +237,6 @@ if uploaded_file is not None:
         if st.button("Áp dụng ánh sáng & màu sắc"):
             with st.spinner("Đang xử lý ảnh..."):
                 try:
-                    # Ép kiểu tường minh trước khi truyền vào hàm nghiệp vụ
                     exp_val = float(st.session_state.get("exposure", 0.0))
                     cnt_val = float(st.session_state.get("contrast", 0))
                     hl_val = float(st.session_state.get("highlights", 0))
@@ -267,21 +264,51 @@ if uploaded_file is not None:
                 except Exception as err:
                     st.error(f"❌ Lỗi khi xử lý ảnh: {err}")
 
-    # --- TAB 2: BỘ LỌC MÀU ---
+    # --- TAB 2: BỘ LỌC MÀU (ĐÃ FIX TÍNH NĂNG KHÔI PHỤC) ---
     with tab2:
         st.markdown("### Chọn Bộ Lọc Nghệ Thuật")
-        filter_option = st.selectbox(
-            "Chọn hiệu ứng:",
-            ["Trắng Đen (Grayscale)", "Cổ Điển (Sepia)", "Rực Rỡ (Vintage/Warm)", "Lạnh (Cool Tone)"]
-        )
-        if st.button("Áp dụng Bộ Lọc"):
-            apply_filter(INPUT_PATH, OUTPUT_PATH, filter_option)
-            update_input_image_and_refresh()
-            st.rerun()
 
-    # --- TAB 3: THÊM TEXT TƯƠNG TÁC ---
+        filter_options = [
+            "Gốc (Original / Không bộ lọc)",
+            "Trắng Đen (Grayscale)",
+            "Cổ Điển (Sepia)",
+            "Rực Rỡ (Vintage/Warm)",
+            "Lạnh (Cool Tone)"
+        ]
+
+        selected_filter = st.selectbox(
+            "Chọn hiệu ứng bộ lọc màu:",
+            filter_options,
+            index=filter_options.index(st.session_state.get("active_filter", "Gốc (Original / Không bộ lọc)"))
+        )
+
+        col_f1, col_f2 = st.columns([1, 1])
+        with col_f1:
+            if st.button("✨ Áp Dụng / Đổi Bộ Lọc"):
+                # Luôn dùng FILTER_BASE_PATH làm gốc để áp dụng filter, tránh bị đè hiệu ứng cũ
+                source_path = FILTER_BASE_PATH if os.path.exists(FILTER_BASE_PATH) else INPUT_PATH
+                apply_filter(source_path, OUTPUT_PATH, selected_filter)
+
+                # Cập nhật ảnh làm việc
+                shutil.copy(OUTPUT_PATH, INPUT_PATH)
+                st.session_state["processed_img"] = OUTPUT_PATH
+                st.session_state["active_filter"] = selected_filter
+                st.success(f"Đã áp dụng bộ lọc: **{selected_filter}**")
+                st.rerun()
+
+        with col_f2:
+            if st.button("🔄 Khôi Phục Về Mẫu Ảnh Ban Đầu"):
+                if os.path.exists(FILTER_BASE_PATH):
+                    shutil.copy(FILTER_BASE_PATH, INPUT_PATH)
+                    shutil.copy(FILTER_BASE_PATH, OUTPUT_PATH)
+                    st.session_state["processed_img"] = OUTPUT_PATH
+                    st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
+                    st.success("Đã khôi phục về ảnh ban đầu (chưa áp dụng bộ lọc)!")
+                    st.rerun()
+
+    # --- TAB 3: THÊM TEXT ---
     with tab3:
-        st.markdown("### 🎯 Chèn Chữ Trực Quan (Chọn Font & Click Vị Trí)")
+        st.markdown("### 🎯 Chèn Chữ Trực Quan")
         col_txt1, col_txt2 = st.columns(2)
         with col_txt1:
             input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
@@ -296,11 +323,8 @@ if uploaded_file is not None:
         hex_c = text_color.lstrip('#')
         rgb_color = tuple(int(hex_c[i:i + 2], 16) for i in (0, 2, 4))
 
-        st.info("👉 **Hướng dẫn:** Click chuột trực tiếp vào vị trí trên bức ảnh bên dưới để chọn điểm chèn chữ.")
-
         canvas_bg = Image.open(INPUT_PATH)
         bg_width, bg_height = canvas_bg.size
-
         disp_width = min(bg_width, 700)
         disp_height = int(bg_height * (disp_width / bg_width))
 
@@ -318,12 +342,9 @@ if uploaded_file is not None:
         pos_x, pos_y = 50, 50
         if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
             last_point = canvas_result.json_data["objects"][-1]
-            click_x = last_point["left"]
-            click_y = last_point["top"]
-
-            pos_x = int(click_x * (bg_width / disp_width))
-            pos_y = int(click_y * (bg_height / disp_height))
-            st.success(f"📍 Đã chọn vị trí: X = `{pos_x}px`, Y = `{pos_y}px`")
+            pos_x = int(last_point["left"] * (bg_width / disp_width))
+            pos_y = int(last_point["top"] * (bg_height / disp_height))
+            st.success(f"📍 Tọa độ chọn: X = `{pos_x}px`, Y = `{pos_y}px`")
 
         if st.button("✨ Áp Dụng Thêm Chữ"):
             if not input_text.strip():
@@ -404,7 +425,6 @@ if uploaded_file is not None:
         curr_img = Image.open(INPUT_PATH)
         orig_w, orig_h = curr_img.size
 
-        # A. CẮT THEO TỈ LỆ CỐ ĐỊNH
         if crop_mode == "Tỉ lệ cố định (Aspect Ratio)":
             ratio_option = st.selectbox(
                 "Chọn tỉ lệ cắt:",
@@ -419,7 +439,6 @@ if uploaded_file is not None:
                 "9:16 (Story/Reels)": (9, 16),
             }
             rw, rh = ratio_map[ratio_option]
-
             target_aspect = rw / rh
             current_aspect = orig_w / orig_h
 
@@ -435,17 +454,15 @@ if uploaded_file is not None:
             right = left + new_w
             bottom = top + new_h
 
-            st.info(f"📐 Kích thước vùng cắt trung tâm đề xuất: `{new_w} x {new_h} px`")
+            st.info(f"📐 Kích thước vùng cắt đề xuất: `{new_w} x {new_h} px`")
 
             if st.button("✂️ Áp dụng Cắt theo tỉ lệ"):
                 crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
                 update_input_image_and_refresh()
                 st.rerun()
 
-        # B. CẮT BẰNG KÉO THẢ TRÊN CANVAS
         elif crop_mode == "Kéo thả trực quan (Canvas Drag)":
-            st.info("👉 **Hướng dẫn:** Đè giữ chuột và kéo thành một **hình chữ nhật** trên ảnh bên dưới để khoanh vùng cắt.")
-
+            st.info("👉 **Hướng dẫn:** Đè giữ chuột và kéo thành một hình chữ nhật trên ảnh.")
             disp_w = min(orig_w, 700)
             disp_h = int(orig_h * (disp_w / orig_w))
 
@@ -495,7 +512,8 @@ if uploaded_file is not None:
                 x1, y1, x2, y2 = active_coords
                 w_box = int(abs(x2 - x1))
                 h_box = int(abs(y2 - y1))
-                st.success(f"📍 Đã ghi nhận khung cắt: X=`{int(min(x1, x2))}`, Y=`{int(min(y1, y2))}`, Rộng=`{w_box}px`, Cao=`{h_box}px`")
+                st.success(
+                    f"📍 Đã ghi nhận khung cắt: X=`{int(min(x1, x2))}`, Y=`{int(min(y1, y2))}`, Rộng=`{w_box}px`, Cao=`{h_box}px`")
 
             if st.button("✂️ Cắt Vùng Đã Chọn"):
                 target_box = st.session_state.get("crop_coords_store") or current_coords
@@ -507,24 +525,23 @@ if uploaded_file is not None:
                 else:
                     st.warning("Vui lòng kéo chuột tạo khung chữ nhật trên ảnh trước!")
 
-        # C. CẮT THEO TỌA ĐỘ / PIXEL TÙY CHỈNH
         else:
             col_cr1, col_cr2 = st.columns(2)
             with col_cr1:
-                crop_x = st.number_input("Tọa độ X bắt đầu (trái)", 0, max(0, orig_w - 1), 0)
-                crop_y = st.number_input("Tọa độ Y bắt đầu (trên)", 0, max(0, orig_h - 1), 0)
+                crop_x = st.number_input("Tọa độ X bắt đầu", 0, max(0, orig_w - 1), 0)
+                crop_y = st.number_input("Tọa độ Y bắt đầu", 0, max(0, orig_h - 1), 0)
             with col_cr2:
-                crop_w = st.number_input("Chiều rộng vùng cắt (W)", 1, orig_w - crop_x, orig_w)
-                crop_h = st.number_input("Chiều cao vùng cắt (H)", 1, orig_h - crop_y, orig_h)
+                crop_w = st.number_input("Chiều rộng (W)", 1, orig_w - crop_x, orig_w)
+                crop_h = st.number_input("Chiều cao (H)", 1, orig_h - crop_y, orig_h)
 
-            if st.button("✂️ Áp dụng Cắt theo thông số Pixel"):
+            if st.button("✂️ Áp dụng Cắt theo Pixel"):
                 box = (crop_x, crop_y, crop_x + crop_w, crop_y + crop_h)
                 crop_image(INPUT_PATH, OUTPUT_PATH, box)
                 st.session_state["crop_coords_store"] = None
                 update_input_image_and_refresh()
                 st.rerun()
 
-    # --- HIỂN THỊ KẾT QUẢ KHI XỬ LÝ XONG (CỘT 2) ---
+    # --- KẾT QUẢ HIỂN THỊ (CỘT 2) ---
     with col2:
         st.subheader("Kết Quả")
         if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):
