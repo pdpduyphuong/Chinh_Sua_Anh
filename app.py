@@ -1,141 +1,151 @@
-import os
-import tempfile
+import io
+import cv2
+import numpy as np
 import streamlit as st
 from PIL import Image
 
-# Import các hàm xử lý từ file core.py sẵn có của bạn
+# Import các hàm từ core.py
 from core import (
-    adjust_image_advanced,
-    rotate_or_flip_image,
-    resize_standard,
-    resize_ai_upscale,
-    crop_image,
-    remove_background_ai,
+    resize_image,
+    remove_background,
+    manual_adjust,
+    analyze_and_auto_enhance
 )
 
-# Cấu hình trang Web
-st.set_page_config(page_title="PDP Photo Editor Web", layout="wide")
-st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
+st.set_page_config(
+    page_title="AI Photo Editor Pro",
+    page_icon="🖼️",
+    layout="wide"
+)
 
-# Khởi tạo thư mục tạm để lưu ảnh
-TEMP_DIR = tempfile.gettempdir()
-INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
-OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
+st.title("🖼️ AI Photo Editor - Chỉnh Sửa & Tối Ưu Ảnh Thông Minh")
+st.write("Tải ảnh của bạn lên để bắt đầu chỉnh sửa thủ công hoặc sử dụng AI tự động phân tích!")
 
-# Sidebar: Tải ảnh lên
-st.sidebar.header("📂 Tải Ảnh Lên")
-uploaded_file = st.sidebar.file_uploader("Chọn tệp ảnh", type=["jpg", "jpeg", "png", "webp"])
+# Thanh tải file
+uploaded_file = st.file_uploader("Chọn hình ảnh (JPG, JPEG, PNG):", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Lưu ảnh tải lên vào tệp tạm
-    image = Image.open(uploaded_file)
-    image.save(INPUT_PATH)
+    # Đọc ảnh và chuyển đổi định dạng
+    image_pil = Image.open(uploaded_file).convert("RGB")
+    image_np = np.array(image_pil)
+    orig_h, orig_w = image_np.shape[:2]
 
-    # Chia màn hình làm 2 cột: Ảnh gốc & Ảnh sau khi chỉnh
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Ảnh Gốc")
-        st.image(image, use_container_width=True)
+    # Hiển thị khu vực xem trước ảnh gốc
+    st.markdown("---")
+    col_left, col_right = st.columns(2)
 
-    # Các Tab tính năng tương tự bản Desktop
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "✨ Chỉnh Sáng & Chi Tiết",
-        "📐 Resize & AI Upscale",
-        "✂️ Tách Nền AI",
-        "🔄 Xoay & Lật"
-    ])
+    with col_left:
+        st.subheader("🖼️ Ảnh Gốc")
+        st.image(image_pil, use_container_width=True)
+        st.caption(f"Kích thước gốc: {orig_w} x {orig_h} pixels")
 
-    # --- TAB 1: CHỈNH SÁNG & CHI TIẾT ---
-    with tab1:
-        st.markdown("### Chỉnh sửa thông số ảnh")
-        c1, c2 = st.columns(2)
-        with c1:
-            exposure = st.slider("Độ sáng (Exposure)", -2.0, 2.0, 0.0, 0.1)
-            contrast = st.slider("Độ tương phản (Contrast)", -100, 100, 0)
-            highlights = st.slider("Vùng sáng (Highlights)", -100, 100, 0)
-            shadows = st.slider("Vùng tối (Shadows)", -100, 100, 0)
-            saturation = st.slider("Độ bão hòa (Saturation)", -100, 100, 0)
-        with c2:
-            clarity = st.slider("Độ rõ nét (Clarity)", -100, 100, 0)
-            dehaze = st.slider("Khử mờ (Dehaze)", 0, 100, 0)
-            sharpening = st.slider("Sắc nét (Sharpening)", 0, 100, 0)
-            noise_reduction = st.slider("Khử nhiễu (Noise Reduction)", 0, 100, 0)
+    # Bảng chọn Chế độ Xử lý
+    st.sidebar.header("⚙️ Chế độ xử lý")
+    mode = st.sidebar.radio(
+        "Lựa chọn phương thức chỉnh sửa:",
+        ["🤖 AI Tự động phân tích & Tối ưu", "🛠️ Chỉnh sửa Thủ công (Manual)"]
+    )
 
-        if st.button("Áp dụng ánh sáng & màu sắc"):
-            with st.spinner("Đang xử lý ảnh..."):
-                adjust_image_advanced(
-                    INPUT_PATH,
-                    OUTPUT_PATH,
-                    exposure=exposure,
-                    contrast=contrast,
-                    highlights=highlights,
-                    shadows=shadows,
-                    saturation=saturation,
-                    clarity=clarity,
-                    dehaze=dehaze,
-                    sharpening=sharpening,
-                    noise_reduction=noise_reduction
-                )
-                st.session_state["processed_img"] = OUTPUT_PATH
+    # Khởi tạo biến lưu kết quả ảnh
+    processed_np = image_np.copy()
+    analysis_report = None
 
-    # --- TAB 2: RESIZE & AI UPSCALE ---
-    with tab2:
-        st.markdown("### Phóng to / Thay đổi kích thước")
-        resize_type = st.radio("Chọn phương pháp:", ["Resize Chuẩn", "AI Super Resolution (Upscale)"])
+    # ==========================================
+    # CHẾ ĐỘ 1: AI TỰ ĐỘNG PHÂN TÍCH
+    # ==========================================
+    if mode == "🤖 AI Tự động phân tích & Tối ưu":
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🤖 Cấu hình AI")
+        enable_autofix = st.sidebar.checkbox("Kích hoạt AI Auto-Enhance", value=True)
 
-        if resize_type == "Resize Chuẩn":
-            w = st.number_input("Chiều rộng (px)", value=image.width)
-            h = st.number_input("Chiều cao (px)", value=image.height)
-            if st.button("Thực hiện Resize"):
-                resize_standard(INPUT_PATH, OUTPUT_PATH, width=w, height=h)
-                st.session_state["processed_img"] = OUTPUT_PATH
-        else:
-            scale = st.selectbox("Tỉ lệ phóng to:", [2, 4])
-            if st.button("Phóng to bằng AI"):
-                with st.spinner("Đang nâng cấp chất lượng bằng AI..."):
-                    resize_ai_upscale(INPUT_PATH, OUTPUT_PATH, scale_factor=scale)
-                    st.session_state["processed_img"] = OUTPUT_PATH
+        if enable_autofix:
+            processed_np, analysis_report = analyze_and_auto_enhance(image_np)
 
-    # --- TAB 3: TÁCH NỀN AI ---
-    with tab3:
-        st.markdown("### Tách nền tự động bằng AI (rembg)")
-        if st.button("Bắt đầu Tách Nền"):
-            with st.spinner("Đang tách nền..."):
-                try:
-                    remove_background_ai(INPUT_PATH, OUTPUT_PATH)
-                    st.session_state["processed_img"] = OUTPUT_PATH
-                    st.success("Tách nền thành công!")
-                except Exception as e:
-                    st.error(f"Lỗi: {e}")
+    # ==========================================
+    # CHẾ ĐỘ 2: CHỈNH TAY THỦ CÔNG
+    # ==========================================
+    else:
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🎛️ Bảng điều khiển")
+        brightness = st.sidebar.slider("Độ sáng (Brightness)", -100, 100, 0, step=5)
+        contrast = st.sidebar.slider("Độ tương phản (Contrast)", 0.5, 2.0, 1.0, step=0.05)
 
-    # --- TAB 4: XOAY & LẬT ---
-    with tab4:
-        st.markdown("### Xoay và lật hướng ảnh")
-        action = st.selectbox("Chọn thao tác:", [
-            ("Xoay phải 90°", "rotate_right"),
-            ("Xoay trái 90°", "rotate_left"),
-            ("Lật ngang", "flip_horizontal"),
-            ("Lật dọc", "flip_vertical")
-        ], format_func=lambda x: x[0])
+        # Áp dụng thông số thủ công
+        processed_np = manual_adjust(image_np, brightness=brightness, contrast=contrast)
 
-        if st.button("Thực hiện"):
-            rotate_or_flip_image(INPUT_PATH, OUTPUT_PATH, action=action[1])
-            st.session_state["processed_img"] = OUTPUT_PATH
+    # ==========================================
+    # CÁC TÍNH NĂNG BỔ SUNG (RESIZE & TÁCH NỀN)
+    # ==========================================
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📐 Thay đổi kích thước (Resize)")
+    use_resize = st.sidebar.checkbox("Kích hoạt Resize")
 
-    # Hiển thị kết quả & Nút tải về
-    with col2:
-        st.subheader("Kết Quả")
-        if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):
-            result_img = Image.open(st.session_state["processed_img"])
-            st.image(result_img, use_container_width=True)
+    if use_resize:
+        keep_ratio = st.sidebar.checkbox("Giữ tỷ lệ khung hình", value=True)
+        new_width = st.sidebar.number_input("Chiều rộng (Width px)", min_value=1, value=orig_w)
+        new_height = st.sidebar.number_input("Chiều cao (Height px)", min_value=1, value=orig_h)
 
-            # Nút Tải ảnh về máy
-            with open(st.session_state["processed_img"], "rb") as file:
-                st.download_button(
-                    label="💾 Tải Ảnh Kết Quả Về Máy",
-                    data=file,
-                    file_name="edited_image.png",
-                    mime="image/png"
-                )
-else:
-    st.info("Vui lòng tải một tệp ảnh lên từ thanh bên (Sidebar) để bắt đầu chỉnh sửa.")
+        target_w = new_width if new_width > 0 else None
+        target_h = new_height if new_height > 0 else None
+        processed_np = resize_image(processed_np, width=target_w, height=target_h, keep_aspect_ratio=keep_ratio)
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("✂️ Tách nền (Remove Background)")
+    btn_remove_bg = st.sidebar.button("Thực hiện tách nền bằng AI")
+
+    is_bg_removed = False
+    if btn_remove_bg:
+        with st.spinner("Đang tách nền ảnh bằng rembg..."):
+            proc_pil = Image.fromarray(processed_np)
+            processed_pil_nobg = remove_background(proc_pil)
+            is_bg_removed = True
+
+    # Convert ngược về PIL Image để hiển thị & xuất file
+    if not is_bg_removed:
+        final_output_pil = Image.fromarray(processed_np)
+    else:
+        final_output_pil = processed_pil_nobg
+
+    # Hiển thị kết quả xử lý
+    with col_right:
+        st.subheader("✨ Ảnh Sau Khi Xử Lý")
+        st.image(final_output_pil, use_container_width=True)
+        res_w, res_h = final_output_pil.size
+        st.caption(f"Kích thước kết quả: {res_w} x {res_h} pixels")
+
+    # ==========================================
+    # HIỂN THỊ BÁO CÁO PHÂN TÍCH CỦA AI
+    # ==========================================
+    if mode == "🤖 AI Tự động phân tích & Tối ưu" and analysis_report:
+        st.markdown("---")
+        st.info("📊 **Báo cáo Phân tích Thông số từ AI:**")
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Độ sáng ban đầu", f"{analysis_report['mean_brightness']}/255")
+        m2.metric("Độ tương phản gốc", f"{analysis_report['std_contrast']}")
+        m3.metric("Độ sắc nét (Sharpness)", f"{analysis_report['sharpness']}")
+        m4.metric("Tăng/Giảm sáng (Beta)", f"{analysis_report['applied_beta']}")
+        m5.metric("Hệ số tương phản (Alpha)", f"{analysis_report['applied_alpha']}")
+
+    # ==========================================
+    # NÚT TẢI ẢNH VỀ MÁY
+    # ==========================================
+    st.markdown("---")
+    buf = io.BytesIO()
+    if is_bg_removed:
+        final_output_pil.save(buf, format="PNG")
+        mime_type = "image/png"
+        file_ext = "png"
+    else:
+        final_output_pil.save(buf, format="JPEG", quality=95)
+        mime_type = "image/jpeg"
+        file_ext = "jpg"
+
+    byte_im = buf.getvalue()
+
+    st.download_button(
+        label="📥 Tải ảnh kết quả về máy",
+        data=byte_im,
+        file_name=f"processed_image.{file_ext}",
+        mime=mime_type
+    )

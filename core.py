@@ -1,383 +1,121 @@
-import os
 import cv2
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
+from PIL import Image
+from rembg import remove
 
-# -----------------------------------------------------------------
-# 1. PHÓNG TO / NÂNG CẤP ẢNH BẰNG AI (SUPER RESOLUTION)
-# -----------------------------------------------------------------
-def resize_ai_upscale(image_path, output_path, model_name="EDSR", scale_factor=2, weights_dir="weights"):
+
+def resize_image(image_np, width=None, height=None, keep_aspect_ratio=True):
     """
-    Phóng to ảnh bằng mô hình AI Super Resolution (OpenCV DNN Super Resolution).
-    Hỗ trợ các file .pb nằm trong thư mục weights (EDSR_x2.pb, EDSR_x4.pb, ...).
+    Thay đổi kích thước ảnh theo chiều rộng/chiều cao mong muốn.
     """
-    model_file = f"{model_name}_x{scale_factor}.pb"
-    model_path = os.path.join(weights_dir, model_file)
+    h, w = image_np.shape[:2]
 
-    # Nếu tìm thấy mô hình AI (.pb) tương ứng trong thư mục weights
-    if os.path.exists(model_path):
-        sr = cv2.dnn_superres.DnnSuperResImpl_create()
-        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise ValueError("Không thể đọc file ảnh đầu vào!")
+    if width is None and height is None:
+        return image_np
 
-        has_alpha = len(img.shape) == 3 and img.shape[2] == 4
-        if has_alpha:
-            bgr = img[:, :, :3]
-            alpha = img[:, :, 3]
+    if keep_aspect_ratio:
+        if width is not None and height is None:
+            r = width / float(w)
+            dim = (width, int(h * r))
+        elif height is not None and width is None:
+            r = height / float(h)
+            dim = (int(w * r), height)
         else:
-            bgr = img
-
-        sr.readModel(model_path)
-        sr.setModel(model_name.lower(), scale_factor)
-        upscaled_bgr = sr.upsample(bgr)
-
-        if has_alpha:
-            # Resize kênh alpha bằng INTER_CUBIC để khớp với kích thước mới
-            h, w = upscaled_bgr.shape[:2]
-            upscaled_alpha = cv2.resize(alpha, (w, h), interpolation=cv2.INTER_CUBIC)
-            result = cv2.merge([upscaled_bgr[:, :, 0], upscaled_bgr[:, :, 1], upscaled_bgr[:, :, 2], upscaled_alpha])
-        else:
-            result = upscaled_bgr
-
-        cv2.imwrite(output_path, result)
-
+            r = min(width / float(w), height / float(h))
+            dim = (int(w * r), int(h * r))
     else:
-        # Fallback về INTER_CUBIC nếu không tìm thấy file weights AI
-        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            raise ValueError("Không thể đọc file ảnh!")
+        dim = (width if width else w, height if height else h)
 
-        h, w = img.shape[:2]
-        new_w = w * scale_factor
-        new_h = h * scale_factor
-
-        upscaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-        cv2.imwrite(output_path, upscaled)
+    resized = cv2.resize(image_np, dim, interpolation=cv2.INTER_AREA)
+    return resized
 
 
-# -----------------------------------------------------------------
-# 2. XỬ LÝ NÂNG CAO (ÁNH SÁNG, MÀU SẮC, ĐỘ RÕ NÉT)
-# -----------------------------------------------------------------
-def adjust_image_advanced(
-    image_path,
-    output_path,
-    exposure=0.0,
-    contrast=0.0,
-    highlights=0.0,
-    shadows=0.0,
-    whites=0.0,
-    blacks=0.0,
-    tint=0.0,
-    vibrance=0.0,
-    saturation=0.0,
-    clarity=0.0,
-    dehaze=0.0,
-    sharpening=0.0,
-    sharpen_radius=1.0,
-    noise_reduction=0.0
-):
+def remove_background(image_pil):
     """
-    Xử lý các thông số ánh sáng, màu sắc và độ rõ nét chuyên nghiệp
+    Tách nền ảnh sử dụng thư viện rembg.
     """
-    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        raise ValueError("Không thể đọc file ảnh từ đường dẫn đã chọn!")
+    return remove(image_pil)
 
-    has_alpha = len(img.shape) == 3 and img.shape[2] == 4
-    if has_alpha:
-        bgr = img[:, :, :3].astype(np.float32) / 255.0
-        alpha = img[:, :, 3]
+
+def manual_adjust(image_np, brightness=0, contrast=1.0):
+    """
+    Chỉnh sửa độ sáng và độ tương phản thủ công.
+    brightness: -100 đến 100
+    contrast: 0.5 đến 2.0
+    """
+    adjusted = cv2.convertScaleAbs(image_np, alpha=contrast, beta=brightness)
+    return adjusted
+
+
+def auto_white_balance(image_np):
+    """
+    Tự động cân bằng màu sắc (White Balance) dựa trên thuật toán Gray World Assumption.
+    """
+    result = image_np.astype(np.float32)
+    avg_b = np.mean(result[:, :, 0])
+    avg_g = np.mean(result[:, :, 1])
+    avg_r = np.mean(result[:, :, 2])
+
+    avg_all = (avg_b + avg_g + avg_r) / 3.0
+
+    if avg_b > 0 and avg_g > 0 and avg_r > 0:
+        result[:, :, 0] = np.clip(result[:, :, 0] * (avg_all / avg_b), 0, 255)
+        result[:, :, 1] = np.clip(result[:, :, 1] * (avg_all / avg_g), 0, 255)
+        result[:, :, 2] = np.clip(result[:, :, 2] * (avg_all / avg_r), 0, 255)
+
+    return result.astype(np.uint8)
+
+
+def analyze_and_auto_enhance(image_np):
+    """
+    AI Phân tích các thông số ảnh (Độ sáng, Tương phản, Độ nét)
+    và tự động đề xuất + áp dụng bộ thông số tối ưu.
+    """
+    # Chuyển sang ảnh xám để tính toán các chỉ số độ sáng/tương phản
+    if len(image_np.shape) == 3 and image_np.shape[2] == 3:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+    elif len(image_np.shape) == 3 and image_np.shape[2] == 4:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
     else:
-        bgr = img.astype(np.float32) / 255.0
+        gray = image_np
 
-    # 1. Khử nhiễu (Noise Reduction)
-    if noise_reduction > 0:
-        h_val = (noise_reduction / 100.0) * 10.0
-        bgr_8u = (bgr * 255.0).astype(np.uint8)
-        bgr_8u = cv2.fastNlMeansDenoisingColored(bgr_8u, None, h_val, h_val, 7, 21)
-        bgr = bgr_8u.astype(np.float32) / 255.0
+    # 1. Phân tích chỉ số
+    mean_brightness = np.mean(gray)  # Độ sáng trung bình (0 - 255)
+    std_contrast = np.std(gray)  # Độ tương phản (Độ lệch chuẩn)
+    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()  # Độ sắc nét
 
-    # 2. Tint (Sắc thái)
-    if tint != 0:
-        shift = (tint / 100.0) * 0.1
-        bgr[:, :, 1] = np.clip(bgr[:, :, 1] - shift, 0, 1)
+    # 2. Thuật toán AI tính toán bộ tham số bù trừ
+    alpha = 1.0  # Hệ số tương phản
+    beta = 0  # Hệ số độ sáng
 
-    # 3. Tính toán Luminance & Mask
-    luminance = 0.299 * bgr[:, :, 2] + 0.587 * bgr[:, :, 1] + 0.114 * bgr[:, :, 0]
+    # Điều chỉnh độ sáng (Mục tiêu đưa độ sáng trung bình về ngưỡng 125-135)
+    if mean_brightness < 100:
+        beta = int((125 - mean_brightness) * 0.75)  # Ảnh tối -> Tăng sáng
+    elif mean_brightness > 165:
+        beta = -int((mean_brightness - 145) * 0.6)  # Ảnh quá sáng -> Giảm sáng
 
-    highlight_mask = np.clip((luminance - 0.5) * 2.0, 0, 1)[:, :, np.newaxis]
-    shadow_mask = np.clip((0.5 - luminance) * 2.0, 0, 1)[:, :, np.newaxis]
-    white_mask = np.clip((luminance - 0.75) * 4.0, 0, 1)[:, :, np.newaxis]
-    black_mask = np.clip((0.25 - luminance) * 4.0, 0, 1)[:, :, np.newaxis]
+    # Điều chỉnh tương phản (Mục tiêu đưa độ lệch chuẩn về khoảng 50-60)
+    if std_contrast < 45:
+        alpha = round(1.0 + (50 - std_contrast) / 80.0, 2)
+    elif std_contrast > 75:
+        alpha = round(1.0 - (std_contrast - 70) / 120.0, 2)
 
-    # 4. Highlights & Shadows
-    if highlights != 0:
-        factor = 1.0 + (highlights / 100.0) * 0.5
-        bgr = bgr * (1 - highlight_mask) + (bgr * factor) * highlight_mask
+    # 3. Áp dụng thông số tự động
+    enhanced = cv2.convertScaleAbs(image_np, alpha=alpha, beta=beta)
 
-    if shadows != 0:
-        factor = 1.0 + (shadows / 100.0) * 0.6
-        bgr = bgr * (1 - shadow_mask) + np.power(np.clip(bgr, 1e-6, 1.0), 1.0 / factor) * shadow_mask
-
-    # 5. Whites & Blacks
-    if whites != 0:
-        factor = 1.0 + (whites / 100.0) * 0.4
-        bgr = bgr * (1 - white_mask) + (bgr * factor) * white_mask
-
-    if blacks != 0:
-        offset = (blacks / 100.0) * 0.15
-        bgr = bgr * (1 - black_mask) + np.clip(bgr + offset, 0, 1) * black_mask
-
-    # 6. Exposure (Độ sáng)
-    if exposure != 0:
-        bgr = bgr * (2.0 ** exposure)
-
-    # 7. Contrast (Độ tương phản)
-    if contrast != 0:
-        factor = (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast))
-        bgr = 0.5 + factor * (bgr - 0.5)
-
-    # 8. Clarity (Midtone Contrast)
-    if clarity != 0:
-        blur = cv2.GaussianBlur(bgr, (0, 0), 3.0)
-        c_factor = (clarity / 100.0) * 0.5
-        bgr = bgr + (bgr - blur) * c_factor
-
-    # 9. Dehaze (Khử sương mờ)
-    if dehaze > 0:
-        d_factor = 1.0 + (dehaze / 100.0) * 0.3
-        bgr = (bgr - 0.1 * (dehaze / 100.0)) * d_factor
-
-    # 10. Sharpening (Unsharp Masking)
-    if sharpening > 0:
-        radius = max(0.5, float(sharpen_radius))
-        blurred = cv2.GaussianBlur(bgr, (0, 0), radius)
-        s_amount = (sharpening / 100.0) * 1.5
-        bgr = cv2.addWeighted(bgr, 1.0 + s_amount, blurred, -s_amount, 0)
-
-    bgr = np.clip(bgr, 0, 1) * 255.0
-    result = bgr.astype(np.uint8)
-
-    if has_alpha:
-        result = cv2.merge([result[:, :, 0], result[:, :, 1], result[:, :, 2], alpha])
-
-    # Chuyển sang PIL để xử lý Saturation & Vibrance
-    pil_img = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB if not has_alpha else cv2.COLOR_BGRA2RGBA))
-
-    if saturation != 0:
-        enhancer_sat = ImageEnhance.Color(pil_img)
-        pil_img = enhancer_sat.enhance(1.0 + (saturation / 100.0))
-
-    if vibrance != 0:
-        enhancer_vib = ImageEnhance.Color(pil_img)
-        pil_img = enhancer_vib.enhance(1.0 + (vibrance / 100.0))
-
-    pil_img.save(output_path)
-
-
-# -----------------------------------------------------------------
-# 3. XOAY, LẬT, CẮT & RESIZE THƯỜNG
-# -----------------------------------------------------------------
-def rotate_or_flip_image(image_path, output_path, action="rotate_right"):
-    with Image.open(image_path) as img:
-        if action == "rotate_left":
-            img = img.rotate(90, expand=True)
-        elif action == "rotate_right":
-            img = img.rotate(-90, expand=True)
-        elif action == "flip_horizontal":
-            img = img.transpose(Image.FLIP_LEFT_RIGHT)
-        elif action == "flip_vertical":
-            img = img.transpose(Image.FLIP_TOP_BOTTOM)
-        img.save(output_path)
-
-
-def resize_standard(image_path, output_path, width=None, height=None):
-  with Image.open(image_path) as img:
-    w, h = img.size
-
-    # Ép kiểu dữ liệu về int để tránh lỗi float/string từ GUI
-    width = int(width) if width is not None and str(width).isdigit() else None
-    height = (
-        int(height) if height is not None and str(height).isdigit() else None
-    )
-
-    if width and not height:
-      height = int(h * (width / w))
-    elif height and not width:
-      width = int(w * (height / h))
-    elif not width and not height:
-      return
-
-    resized = img.resize((width, height), Image.Resampling.LANCZOS)
-    if output_path.lower().endswith((".jpg", ".jpeg")) and resized.mode in (
-        "RGBA",
-        "P",
-    ):
-      resized = resized.convert("RGB")
-    resized.save(output_path)
-
-
-def resize_ai_upscale(
-    image_path,
-    output_path,
-    model_name="EDSR",
-    scale_factor=2,
-    weights_dir="weights",
-):
-  scale_factor = int(scale_factor)
-  model_file = f"{model_name}_x{scale_factor}.pb"
-
-  # Đảm bảo đường dẫn tuyệt đối tới thư mục weights
-  base_dir = os.path.dirname(os.path.abspath(__file__))
-  model_path = os.path.join(base_dir, weights_dir, model_file)
-
-  if os.path.exists(model_path):
-    sr = cv2.dnn_superres.DnnSuperResImpl_create()
-    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-      raise ValueError("Không thể đọc file ảnh đầu vào!")
-
-    has_alpha = len(img.shape) == 3 and img.shape[2] == 4
-    bgr = img[:, :, :3] if has_alpha else img
-
-    sr.readModel(model_path)
-    sr.setModel(model_name.lower(), scale_factor)
-    upscaled_bgr = sr.upsample(bgr)
-
-    if has_alpha:
-      h, w = upscaled_bgr.shape[:2]
-      upscaled_alpha = cv2.resize(
-          img[:, :, 3], (w, h), interpolation=cv2.INTER_CUBIC
-      )
-      result = cv2.merge([
-          upscaled_bgr[:, :, 0],
-          upscaled_bgr[:, :, 1],
-          upscaled_bgr[:, :, 2],
-          upscaled_alpha,
-      ])
+    # 4. Áp dụng Cân bằng trắng tự động
+    if len(enhanced.shape) == 3:
+        final_result = auto_white_balance(enhanced)
     else:
-      result = upscaled_bgr
+        final_result = enhanced
 
-    cv2.imwrite(output_path, result)
-  else:
-    # Dự phòng bằng cv2.resize chuẩn
-    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-      raise ValueError("Không thể đọc file ảnh!")
+    # Báo cáo chi tiết để trả về cho giao diện
+    analysis_report = {
+        "mean_brightness": round(mean_brightness, 1),
+        "std_contrast": round(std_contrast, 1),
+        "sharpness": round(laplacian_var, 1),
+        "applied_alpha": alpha,
+        "applied_beta": beta
+    }
 
-    h, w = img.shape[:2]
-    new_w = int(w * scale_factor)
-    new_h = int(h * scale_factor)
-
-    upscaled = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-    cv2.imwrite(output_path, upscaled)
-
-
-def crop_image(image_path, output_path, crop_box):
-    """crop_box: tuple (left, top, right, bottom)"""
-    with Image.open(image_path) as img:
-        cropped_img = img.crop(crop_box)
-        if output_path.lower().endswith(('.jpg', '.jpeg')) and cropped_img.mode in ('RGBA', 'LA', 'P'):
-            cropped_img = cropped_img.convert('RGB')
-        cropped_img.save(output_path)
-
-
-# -----------------------------------------------------------------
-# 4. TÁCH NỀN (REMOVE BACKGROUND)
-# -----------------------------------------------------------------
-def remove_background_ai(image_path, output_path):
-  try:
-    from rembg import new_session, remove
-
-    # Sử dụng session cố định giúp tối ưu tốc độ và ổn định hơn
-    session = new_session("bria-rmbg")
-    with Image.open(image_path) as inp:
-      out = remove(inp, session=session)
-      # Chuyển đổi định dạng nếu đầu ra là JPG (vì JPG không hỗ trợ kênh Alpha/nền trong suốt)
-      if output_path.lower().endswith((".jpg", ".jpeg")):
-        out = out.convert("RGB")
-      out.save(output_path)
-  except ImportError:
-    raise ImportError(
-        "Thư viện 'rembg' chưa được cài đặt. Vui lòng chạy lệnh: pip install"
-        " rembg"
-    )
-  except Exception as e:
-    raise RuntimeError(
-        f"Lỗi khi xóa nền (có thể do chưa tải được model bria-rmbg): {str(e)}"
-    )
-
-# -----------------------------------------------------------------
-# 5. BỘ LỌC ẢNH (FILTERS)
-# -----------------------------------------------------------------
-def apply_filter(image_path, output_path, filter_type="Grayscale"):
-    with Image.open(image_path) as img:
-        img = img.convert("RGB")
-
-        if filter_type == "Grayscale":
-            result = img.convert("L").convert("RGB")
-        elif filter_type == "Sepia":
-            sepia_img = img.convert("L")
-            result = Image.merge("RGB", (
-                sepia_img.point(lambda p: min(255, int(p * 1.2))),
-                sepia_img.point(lambda p: min(255, int(p * 1.0))),
-                sepia_img.point(lambda p: min(255, int(p * 0.8)))
-            ))
-        elif filter_type == "Blur":
-            result = img.filter(ImageFilter.BLUR)
-        elif filter_type == "Sharpen":
-            result = img.filter(ImageFilter.SHARPEN)
-        elif filter_type == "Contour":
-            result = img.filter(ImageFilter.CONTOUR)
-        elif filter_type == "Detail":
-            result = img.filter(ImageFilter.DETAIL)
-        elif filter_type == "Edge Enhance":
-            result = img.filter(ImageFilter.EDGE_ENHANCE)
-        else:
-            result = img.copy()
-
-        result.save(output_path)
-
-
-# -----------------------------------------------------------------
-# 6. CHÈN TEXT VÀ LOGO / WATERMARK
-# -----------------------------------------------------------------
-def add_text_watermark(image_path, output_path, text, pos_x=50, pos_y=50, font_size=36, text_color=(255, 255, 255)):
-    with Image.open(image_path) as img:
-        img = img.convert("RGBA")
-        txt_layer = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(txt_layer)
-
-        try:
-            font = ImageFont.truetype("arial.ttf", font_size)
-        except IOError:
-            font = ImageFont.load_default()
-
-        draw.text((pos_x, pos_y), text, fill=text_color, font=font)
-
-        combined = Image.alpha_composite(img, txt_layer)
-        if output_path.lower().endswith(('.jpg', '.jpeg')):
-            combined.convert("RGB").save(output_path)
-        else:
-            combined.save(output_path)
-
-
-def add_icon_overlay(image_path, output_path, icon_path, pos_x=50, pos_y=50, scale_percent=100):
-    with Image.open(image_path) as base_img, Image.open(icon_path) as icon_img:
-        base_img = base_img.convert("RGBA")
-        icon_img = icon_img.convert("RGBA")
-
-        if scale_percent != 100:
-            new_w = int(icon_img.width * scale_percent / 100)
-            new_h = int(icon_img.height * scale_percent / 100)
-            icon_img = icon_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-        overlay = Image.new("RGBA", base_img.size, (0, 0, 0, 0))
-        overlay.paste(icon_img, (pos_x, pos_y), mask=icon_img)
-
-        combined = Image.alpha_composite(base_img, overlay)
-        if output_path.lower().endswith(('.jpg', '.jpeg')):
-            combined.convert("RGB").save(output_path)
-        else:
-            combined.save(output_path)
+    return final_result, analysis_report
