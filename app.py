@@ -29,67 +29,48 @@ OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
 # HÀM PHÂN TÍCH ẢNH BẰNG AI (Tự động đề xuất tham số)
 # -------------------------------------------------------------------
 def analyze_image_ai(image_path):
-    """
-    Phân tích ảnh màu chuẩn RGB và đề xuất bộ thông số làm sáng, nổi khối, sắc nét.
-    """
-    # 1. Đọc ảnh bằng PIL để giữ chuẩn màu RGB (tránh lỗi BGR/grayscale của OpenCV)
     pil_img = Image.open(image_path).convert("RGB")
     img_np = np.array(pil_img)
 
-    # 2. Chuyển sang không gian màu LAB để đo độ sáng chuẩn (kênh L) mà không làm lệch màu
     img_lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
-    l_channel, a_channel, b_channel = cv2.split(img_lab)
+    l_channel, _, _ = cv2.split(img_lab)
 
-    # Tính toán các chỉ số trên kênh độ sáng L
-    mean_brightness = np.mean(l_channel)  # Thang độ sáng 0 - 255
-    p10 = np.percentile(l_channel, 10)     # Vùng tối (Shadows)
-    p90 = np.percentile(l_channel, 90)     # Vùng sáng (Highlights)
-    std_contrast = np.std(l_channel)      # Độ tương phản
+    # 1. Quy đổi độ sáng gốc từ 0-255 sang thang 0 - 100%
+    raw_brightness_255 = np.mean(l_channel)
+    brightness_pct = round((raw_brightness_255 / 255.0) * 100, 1)
 
-    # Đo độ nét bằng OpenCV Laplacian
+    p10 = np.percentile(l_channel, 10) / 2.55 # Quy đổi ra %
+    p90 = np.percentile(l_channel, 90) / 2.55
+    std_contrast = round(float(np.std(l_channel)), 1)
+
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+    laplacian_var = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 1)
 
-    # -------------------------------------------------------------
-    # TÍNH TOÁN BỘ THÔNG SỐ LÀM ĐẸP (SÁNG - NÉT - RỰC RỠ)
-    # -------------------------------------------------------------
-    # A. Exposure (Mục tiêu đưa độ sáng trung bình L lên khoảng 135 - 145)
-    target_l = 140.0
-    suggested_exposure = (target_l - mean_brightness) / 80.0
-    suggested_exposure = float(np.clip(suggested_exposure, -0.8, 1.2))
+    # 2. Tính toán tham số gợi ý
+    # Mục tiêu đưa độ sáng về khoảng 55% - 60% (Sáng đẹp, trong trẻo)
+    target_pct = 58.0
+    suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
+    suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
 
-    # B. Shadows (Kéo sáng vùng tối bị chìm)
-    suggested_shadows = 0
-    if p10 < 60:
-        suggested_shadows = int((60 - p10) * 1.1)
-    suggested_shadows = int(np.clip(suggested_shadows, 0, 50))
-
-    # C. Highlights (Hạ nhẹ vùng sáng để tránh gắt/cháy)
-    suggested_highlights = -15 if p90 > 190 else 0
-
-    # D. Contrast (Giữ độ tương phản vừa đủ)
+    suggested_shadows = int(np.clip((25 - p10) * 1.5, 0, 50)) if p10 < 25 else 0
+    suggested_highlights = -15 if p90 > 75 else 0
     suggested_contrast = 15 if std_contrast < 50 else 5
-
-    # E. Clarity & Dehaze (Giúp ảnh trong trẻo, xóa mù)
     suggested_clarity = 20
-    suggested_dehaze = 15
+    suggested_dehaze = 10
+    suggested_saturation = 10
 
-    # F. Sharpening (Tăng độ nét dựa trên độ nhòe gốc)
     if laplacian_var < 100:
-        suggested_sharpening = 45
+        suggested_sharpening = 40
     elif laplacian_var < 300:
-        suggested_sharpening = 30
+        suggested_sharpening = 25
     else:
         suggested_sharpening = 15
 
-    # G. Saturation (Đảm bảo luôn giữ màu sắc tươi tắn)
-    suggested_saturation = 10
-
     return {
-        "mean_brightness": round(mean_brightness, 1),
-        "std_contrast": round(std_contrast, 1),
-        "sharpness": round(laplacian_var, 1),
-        "exposure": round(suggested_exposure, 1),
+        "brightness_pct": brightness_pct, # % độ sáng
+        "std_contrast": std_contrast,
+        "sharpness": laplacian_var,
+        "exposure": suggested_exposure,
         "contrast": suggested_contrast,
         "highlights": suggested_highlights,
         "shadows": suggested_shadows,
@@ -167,33 +148,40 @@ if uploaded_file is not None:
             with col_ai2:
                 if st.session_state["ai_analysis"]:
                     ai_res = st.session_state["ai_analysis"]
+                    # Đã đổi hiển thị sang % độ sáng thay vì /255
                     st.write(
-                        f"📊 **Chỉ số gốc:** Độ sáng `{ai_res['mean_brightness']}/255` | "
+                        f"📊 **Chỉ số gốc:** Độ sáng `{ai_res['brightness_pct']}%` | "
                         f"Tương phản `{ai_res['std_contrast']}` | "
                         f"Độ nét `{ai_res['sharpness']}`"
                     )
                     st.write(
-                        f"💡 **AI gợi ý:** Exposure `{ai_res['exposure']:+.1f}` | "
+                        f"💡 **AI đề xuất:** "
+                        f"Exp `{ai_res['exposure']:+.1f}` | "
                         f"Contrast `{ai_res['contrast']:+d}` | "
-                        f"Sharpening `{ai_res['sharpening']}`"
+                        f"Shadows `{ai_res['shadows']:+d}` | "
+                        f"Sharp `{ai_res['sharpening']}`"
                     )
                     st.button("👉 Áp dụng thông số AI vào Slider", on_click=apply_ai_suggestions)
 
         st.markdown("---")
 
-        # KHU VỰC THANH SLIDER
+        # KHU VỰC THANH SLIDER (Dùng value=st.session_state[...] để giữ giá trị chuẩn)
         c1, c2 = st.columns(2)
         with c1:
-            exposure = st.slider("Độ sáng (Exposure)", -2.0, 2.0, key="exposure", step=0.1)
-            contrast = st.slider("Độ tương phản (Contrast)", -100, 100, key="contrast")
-            highlights = st.slider("Vùng sáng (Highlights)", -100, 100, key="highlights")
-            shadows = st.slider("Vùng tối (Shadows)", -100, 100, key="shadows")
-            saturation = st.slider("Độ bão hòa (Saturation)", -100, 100, key="saturation")
+            exposure = st.slider("Độ sáng (Exposure)", -2.0, 2.0, value=float(st.session_state.get("exposure", 0.0)),
+                                 step=0.1)
+            contrast = st.slider("Độ tương phản (Contrast)", -100, 100, value=int(st.session_state.get("contrast", 0)))
+            highlights = st.slider("Vùng sáng (Highlights)", -100, 100,
+                                   value=int(st.session_state.get("highlights", 0)))
+            shadows = st.slider("Vùng tối (Shadows)", -100, 100, value=int(st.session_state.get("shadows", 0)))
+            saturation = st.slider("Độ bão hòa (Saturation)", -100, 100,
+                                   value=int(st.session_state.get("saturation", 0)))
         with c2:
-            clarity = st.slider("Độ rõ nét (Clarity)", -100, 100, key="clarity")
-            dehaze = st.slider("Khử mờ (Dehaze)", 0, 100, key="dehaze")
-            sharpening = st.slider("Sắc nét (Sharpening)", 0, 100, key="sharpening")
-            noise_reduction = st.slider("Khử nhiễu (Noise Reduction)", 0, 100, key="noise_reduction")
+            clarity = st.slider("Độ rõ nét (Clarity)", -100, 100, value=int(st.session_state.get("clarity", 0)))
+            dehaze = st.slider("Khử mờ (Dehaze)", 0, 100, value=int(st.session_state.get("dehaze", 0)))
+            sharpening = st.slider("Sắc nét (Sharpening)", 0, 100, value=int(st.session_state.get("sharpening", 0)))
+            noise_reduction = st.slider("Khử nhiễu (Noise Reduction)", 0, 100,
+                                        value=int(st.session_state.get("noise_reduction", 0)))
 
         if st.button("Áp dụng ánh sáng & màu sắc"):
             with st.spinner("Đang xử lý ảnh..."):
