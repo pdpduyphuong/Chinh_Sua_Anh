@@ -201,74 +201,73 @@ if uploaded_file is not None:
             apply_filter(INPUT_PATH, OUTPUT_PATH, filter_option)
             st.session_state["processed_img"] = OUTPUT_PATH
 
-        # --- TAB 3: THÊM TEXT TƯƠNG TÁC (CLICK CHỌN VỊ TRÍ) ---
-        with tab3:
-            st.markdown("### 🎯 Chèn Chữ Trực Quan (Click Chọn Vị Trí Trên Ảnh)")
+            # --- TAB 3: THÊM TEXT TƯƠNG TÁC (CHỌN FONT CHỮ) ---
+            with tab3:
+                st.markdown("### 🎯 Chèn Chữ Trực Quan (Chọn Font & Click Vị Trí)")
 
-            # 1. Nhập thông số chữ
-            col_txt1, col_txt2 = st.columns(2)
-            with col_txt1:
-                input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
-                font_size = st.slider("Kích thước chữ (px)", 12, 120, 36)
-            with col_txt2:
-                text_color = st.color_picker("Màu chữ", "#FFFFFF")
-                stroke_color = st.color_picker("Màu viền chữ", "#000000")
+                # 1. Nhập thông số chữ
+                col_txt1, col_txt2 = st.columns(2)
+                with col_txt1:
+                    input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
+                    font_size = st.slider("Kích thước chữ (px)", 12, 150, 40)
+                with col_txt2:
+                    font_name = st.selectbox(
+                        "Kiểu Font chữ:",
+                        ["Arial", "Times New Roman", "Courier New", "Segoe UI", "Calibri", "Georgia", "Tahoma",
+                         "Verdana"]
+                    )
+                    text_color = st.color_picker("Màu chữ", "#FF0000")
 
-            # Quy đổi mã Hex sang RGB
-            hex_c = text_color.lstrip('#')
-            rgb_color = tuple(int(hex_c[i:i + 2], 16) for i in (0, 2, 4))
+                # Quy đổi mã Hex sang RGB
+                hex_c = text_color.lstrip('#')
+                rgb_color = tuple(int(hex_c[i:i + 2], 16) for i in (0, 2, 4))
 
-            hex_s = stroke_color.lstrip('#')
-            rgb_stroke = tuple(int(hex_s[i:i + 2], 16) for i in (0, 2, 4))
+                st.info(
+                    "👉 **Hướng dẫn:** Click chuột trực tiếp vào vị trí trên bức ảnh bên dưới để đặt tâm điểm chèn chữ.")
 
-            st.info("👉 **Hướng dẫn:** Click chuột trực tiếp vào vị trí trên bức ảnh bên dưới để đặt tâm điểm chèn chữ.")
+                # 2. Khung ảnh Canvas cho phép Click chọn vị trí
+                canvas_bg = Image.open(INPUT_PATH)
+                bg_width, bg_height = canvas_bg.size
 
-            # 2. Khung ảnh Canvas cho phép Click chọn vị trí
-            canvas_bg = Image.open(INPUT_PATH)
-            bg_width, bg_height = canvas_bg.size
+                disp_width = min(bg_width, 700)
+                disp_height = int(bg_height * (disp_width / bg_width))
 
-            # Giới hạn chiều rộng khung xem canvas để không tràn màn hình
-            disp_width = min(bg_width, 700)
-            disp_height = int(bg_height * (disp_width / bg_width))
-
-            canvas_result = st_canvas(
-                fill_color="rgba(255, 165, 0, 0.3)",
-                stroke_width=2,
-                background_image=canvas_bg,
-                update_streamlit=True,
-                height=disp_height,
-                width=disp_width,
-                drawing_mode="point",  # Chế độ chấm điểm
-                key="canvas_text_picker",
-            )
-
-            # 3. Tính toán tọa độ thực tế từ điểm Click
-            pos_x, pos_y = 50, 50  # Vị trí mặc định
-            if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
-                # Lấy điểm click mới nhất
-                last_point = canvas_result.json_data["objects"][-1]
-                click_x = last_point["left"]
-                click_y = last_point["top"]
-
-                # Quy đổi tọa độ từ màn hình hiển thị về kích thước ảnh gốc
-                pos_x = int(click_x * (bg_width / disp_width))
-                pos_y = int(click_y * (bg_height / disp_height))
-
-                st.success(f"📍 Đã chọn vị trí: X = `{pos_x}px`, Y = `{pos_y}px`")
-
-            # 4. Nút thực thi chèn chữ
-            if st.button("✨ Áp Dụng Thêm Chữ"):
-                add_text_to_image(
-                    INPUT_PATH,
-                    OUTPUT_PATH,
-                    text=input_text,
-                    position=(pos_x, pos_y),
-                    font_size=font_size,
-                    color=rgb_color,
-                    stroke_color=rgb_stroke
+                canvas_result = st_canvas(
+                    fill_color="rgba(255, 165, 0, 0.3)",
+                    stroke_width=2,
+                    background_image=canvas_bg,
+                    update_streamlit=True,
+                    height=disp_height,
+                    width=disp_width,
+                    drawing_mode="point",
+                    key="canvas_text_picker",
                 )
-                st.session_state["processed_img"] = OUTPUT_PATH
-                st.rerun()
+
+                # 3. Tính toán tọa độ từ điểm Click
+                pos_x, pos_y = 50, 50
+                if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
+                    last_point = canvas_result.json_data["objects"][-1]
+                    click_x = last_point["left"]
+                    click_y = last_point["top"]
+
+                    pos_x = int(click_x * (bg_width / disp_width))
+                    pos_y = int(click_y * (bg_height / disp_height))
+
+                    st.success(f"📍 Đã chọn vị trí: X = `{pos_x}px`, Y = `{pos_y}px`")
+
+                # 4. Nút thực thi chèn chữ
+                if st.button("✨ Áp Dụng Thêm Chữ"):
+                    add_text_to_image(
+                        INPUT_PATH,
+                        OUTPUT_PATH,
+                        text=input_text,
+                        position=(pos_x, pos_y),
+                        font_name=font_name,
+                        font_size=font_size,
+                        color=rgb_color
+                    )
+                    st.session_state["processed_img"] = OUTPUT_PATH
+                    st.rerun()
 
     # --- TAB 4: RESIZE & UPSCALE ---
     with tab4:

@@ -353,26 +353,85 @@ def ai_analyze_image(image_np):
 
 
 # --- THÊM TEXT VÀO ẢNH ---
-def add_text_to_image(input_path, output_path, text, position=(50, 50), font_size=40, color=(255, 255, 255),
-                      stroke_color=(0, 0, 0)):
+def get_unicode_font(font_size):
+    """
+    Hàm tìm hoặc tải font hỗ trợ Tiếng Việt & co giãn kích thước chuẩn xác.
+    """
+    # 1. Danh sách các đường dẫn font phổ biến trên Windows / Linux / macOS
+    possible_fonts = [
+        "arial.ttf",
+        "arialbd.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "C:\\Windows\\Fonts\\segoeui.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf"
+    ]
+
+    for font_path in possible_fonts:
+        try:
+            return ImageFont.truetype(font_path, font_size)
+        except (IOError, OSError):
+            continue
+
+    # 2. Nếu không tìm thấy font hệ thống, tự động tải font DejaVuSans về thư mục temp
+    temp_font_path = os.path.join(os.path.dirname(__file__), "dejavu_font.ttf")
+    if not os.path.exists(temp_font_path):
+        try:
+            url = "https://github.com/dejavu-fonts/dejavu-fonts/raw/master/ttf/DejaVuSans.ttf"
+            urllib.request.urlretrieve(url, temp_font_path)
+        except Exception:
+            pass
+
+    if os.path.exists(temp_font_path):
+        try:
+            return ImageFont.truetype(temp_font_path, font_size)
+        except Exception:
+            pass
+
+    # 3. Phương án dự phòng cho các bản Pillow mới hỗ trợ tham số size
+    try:
+        return ImageFont.load_default(size=font_size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+# Danh sách các font hệ thống phổ biến
+FONT_MAP = {
+    "Arial": ["arial.ttf", "Arial.ttf", "C:\\Windows\\Fonts\\arial.ttf"],
+    "Times New Roman": ["times.ttf", "Times New Roman.ttf", "C:\\Windows\\Fonts\\times.ttf"],
+    "Courier New": ["cour.ttf", "Courier New.ttf", "C:\\Windows\\Fonts\\cour.ttf"],
+    "Segoe UI": ["segoeui.ttf", "C:\\Windows\\Fonts\\segoeui.ttf"],
+    "Calibri": ["calibri.ttf", "C:\\Windows\\Fonts\\calibri.ttf"],
+    "Georgia": ["georgia.ttf", "C:\\Windows\\Fonts\\georgia.ttf"],
+    "Tahoma": ["tahoma.ttf", "C:\\Windows\\Fonts\\tahoma.ttf"],
+    "Verdana": ["verdana.ttf", "C:\\Windows\\Fonts\\verdana.ttf"]
+}
+
+def load_selected_font(font_name, font_size):
+    """Load font được chọn với kích thước tương ứng."""
+    paths = FONT_MAP.get(font_name, FONT_MAP["Arial"])
+    for path in paths:
+        try:
+            return ImageFont.truetype(path, font_size)
+        except (IOError, OSError):
+            continue
+
+    # Dự phòng nếu hệ thống không có font cụ thể
+    try:
+        return ImageFont.load_default(size=font_size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def add_text_to_image(input_path, output_path, text, position=(50, 50), font_name="Arial", font_size=40, color=(255, 255, 255)):
     img = Image.open(input_path).convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    try:
-        font = ImageFont.truetype("arial.ttf", font_size)
-    except IOError:
-        font = ImageFont.load_default()
+    # Load font chữ theo yêu cầu
+    font = load_selected_font(font_name, font_size)
 
-    # Chèn chữ có viền đen/trắng xung quanh để nổi bật trên mọi nền
-    stroke_width = max(1, font_size // 15)
-    draw.text(
-        position,
-        text,
-        fill=color,
-        font=font,
-        stroke_width=stroke_width,
-        stroke_fill=stroke_color
-    )
+    # Vẽ chữ trực tiếp (không dùng stroke/viền)
+    draw.text(position, text, fill=color, font=font)
     img.save(output_path, format="PNG")
 
 
