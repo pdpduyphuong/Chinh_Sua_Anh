@@ -1,8 +1,16 @@
 # core.py
 import os
-import cv2
+import sys
+from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+# --- KIỂM TRA & IMPORT NĂNG ĐỘNG DÀNH CHO OPENCV ---
+try:
+    import cv2
+except ImportError:
+    # Trường hợp fallback nếu opencv-python bị thiếu trên Linux
+    cv2 = None
 
 # -------------------------------------------------------------------
 # 1. BỘ CẤU HÌNH FONT CHỮ DÙNG CHO THÊM TEXT
@@ -18,7 +26,7 @@ FONT_MAP = {
     "Verdana": ["verdana.ttf", "C:\\Windows\\Fonts\\verdana.ttf"]
 }
 
-def load_selected_font(font_name, font_size):
+def load_selected_font(font_name: str, font_size: int):
     paths = FONT_MAP.get(font_name, FONT_MAP["Arial"])
     for path in paths:
         try:
@@ -34,17 +42,17 @@ def load_selected_font(font_name, font_size):
 # 2. XỬ LÝ ÁNH SÁNG & MÀU SẮC NÂNG CAO
 # -------------------------------------------------------------------
 def adjust_image_advanced(
-    input_path,
-    output_path,
-    exposure=0.0,
-    contrast=0,
-    highlights=0,
-    shadows=0,
-    saturation=0,
-    clarity=0,
-    dehaze=0,
-    sharpening=0
-):
+    input_path: str,
+    output_path: str,
+    exposure: float = 0.0,
+    contrast: int = 0,
+    highlights: int = 0,
+    shadows: int = 0,
+    saturation: int = 0,
+    clarity: int = 0,
+    dehaze: int = 0,
+    sharpening: int = 0
+) -> None:
     img_pil = Image.open(input_path).convert("RGB")
     img = np.array(img_pil)
 
@@ -58,8 +66,8 @@ def adjust_image_advanced(
         f = 131 * (contrast + 127) / (127 * (131 - contrast))
         img = np.clip(128 + f * (img.astype(np.float32) - 128), 0, 255).astype(np.uint8)
 
-    # C. Shadows & Highlights
-    if shadows != 0 or highlights != 0:
+    # C. Shadows & Highlights (Yêu cầu OpenCV)
+    if (shadows != 0 or highlights != 0) and cv2 is not None:
         lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
         l, a, b_chan = cv2.split(lab)
         l_float = l.astype(np.float32)
@@ -76,14 +84,14 @@ def adjust_image_advanced(
         img = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
 
     # D. Saturation
-    if saturation != 0:
+    if saturation != 0 and cv2 is not None:
         hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
         sat_factor = 1.0 + (saturation / 100.0)
         hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_factor, 0, 255)
         img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
 
     # E. Sharpening & Clarity
-    if sharpening > 0:
+    if sharpening > 0 and cv2 is not None:
         strength = sharpening / 100.0
         blurred = cv2.GaussianBlur(img, (0, 0), 3)
         img = cv2.addWeighted(img, 1.0 + strength, blurred, -strength, 0)
@@ -92,9 +100,9 @@ def adjust_image_advanced(
     res_pil.save(output_path, format="PNG")
 
 # -------------------------------------------------------------------
-# 3. HÀM CẮT ÁNH (CROP IMAGE) - ĐÃ XỬ LÝ CHUẨN HÓA TỌA ĐỘ BẬC CAO
+# 3. HÀM CẮT ÁNH (CROP IMAGE)
 # -------------------------------------------------------------------
-def crop_image(input_path, output_path, crop_box):
+def crop_image(input_path: str, output_path: str, crop_box: tuple) -> None:
     """
     crop_box: tuple (x1, y1, x2, y2)
     """
@@ -102,13 +110,11 @@ def crop_image(input_path, output_path, crop_box):
         w, h = img.size
         x1, y1, x2, y2 = crop_box
 
-        # Đảm bảo x1 < x2 và y1 < y2 (xử lý kéo ngược chuột từ phải sang trái / dưới lên trên)
         left = float(min(x1, x2))
         right = float(max(x1, x2))
         upper = float(min(y1, y2))
         lower = float(max(y1, y2))
 
-        # Giới hạn chính xác trong kích thước ảnh thực tế (0 -> w, 0 -> h)
         left = int(max(0, min(round(left), w - 1)))
         upper = int(max(0, min(round(upper), h - 1)))
         right = int(max(left + 1, min(round(right), w)))
@@ -118,13 +124,20 @@ def crop_image(input_path, output_path, crop_box):
             cropped = img.crop((left, upper, right, lower))
             cropped.save(output_path, format="PNG")
         else:
-            # Nếu khung chọn quá nhỏ hoặc lỗi, giữ nguyên ảnh
             img.save(output_path, format="PNG")
 
 # -------------------------------------------------------------------
 # 4. CÁC TÍNH NĂNG PHỤ TRỢ KHÁC
 # -------------------------------------------------------------------
-def add_text_to_image(input_path, output_path, text, position=(50, 50), font_name="Arial", font_size=40, color=(255, 0, 0)):
+def add_text_to_image(
+    input_path: str,
+    output_path: str,
+    text: str,
+    position: tuple = (50, 50),
+    font_name: str = "Arial",
+    font_size: int = 40,
+    color: tuple = (255, 0, 0)
+) -> None:
     with Image.open(input_path) as img:
         img = img.convert("RGB")
         draw = ImageDraw.Draw(img)
@@ -132,7 +145,10 @@ def add_text_to_image(input_path, output_path, text, position=(50, 50), font_nam
         draw.text(position, text, fill=color, font=font)
         img.save(output_path, format="PNG")
 
-def apply_filter(input_path, output_path, filter_type):
+def apply_filter(input_path: str, output_path: str, filter_type: str) -> None:
+    if cv2 is None:
+        return
+
     img = cv2.imread(input_path)
     if img is None:
         return
@@ -162,27 +178,34 @@ def apply_filter(input_path, output_path, filter_type):
 
     cv2.imwrite(output_path, result)
 
-def resize_standard(input_path, output_path, width, height):
+def resize_standard(input_path: str, output_path: str, width: int, height: int) -> None:
     with Image.open(input_path) as img:
         resized = img.resize((width, height), Image.Resampling.LANCZOS)
         resized.save(output_path, format="PNG")
 
-def resize_ai_upscale(input_path, output_path, scale_factor=2):
+def resize_ai_upscale(input_path: str, output_path: str, scale_factor: int = 2) -> None:
     with Image.open(input_path) as img:
         new_w = int(img.width * scale_factor)
         new_h = int(img.height * scale_factor)
         resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
         resized.save(output_path, format="PNG")
 
-def remove_background_ai(input_path, output_path):
-    from rembg import remove
+def remove_background_ai(input_path: str, output_path: str) -> None:
+    """Lazy Loading cho rembg để tránh lỗi ImportError khi ứng dụng khởi chạy."""
+    try:
+        from rembg import remove
+    except ImportError as err:
+        raise ImportError(
+            "Thư viện 'rembg' chưa được cài đặt. Vui lòng thêm 'rembg' và 'onnxruntime' vào requirements.txt."
+        ) from err
+
     with open(input_path, "rb") as i:
         input_data = i.read()
         output_data = remove(input_data)
         with open(output_path, "wb") as o:
             o.write(output_data)
 
-def rotate_or_flip_image(input_path, output_path, action):
+def rotate_or_flip_image(input_path: str, output_path: str, action: str) -> None:
     with Image.open(input_path) as img:
         if action == "rotate_right":
             res = img.rotate(-90, expand=True)
