@@ -6,7 +6,6 @@ import tempfile
 from pathlib import Path
 from PIL import Image, ImageDraw
 
-# Thiết lập đường dẫn module
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
@@ -14,9 +13,7 @@ if str(CURRENT_DIR) not in sys.path:
 import numpy as np
 import streamlit as st
 
-# -------------------------------------------------------------
-# CHECK DEPENDENCIES AN TOÀN
-# -------------------------------------------------------------
+# Check dependencies
 try:
     from streamlit_drawable_canvas import st_canvas
     HAS_CANVAS = True
@@ -36,19 +33,17 @@ try:
         crop_image,
         resize_standard,
         resize_ai_upscale,
-        remove_background_ai,
+        remove_background_u2net,
+        remove_background_by_color,
+        analyze_image_fast,
         add_text_to_image,
         apply_filter,
-        cv2
     )
     HAS_CORE = True
 except Exception as e:
     HAS_CORE = False
     CORE_ERROR = str(e)
 
-# -------------------------------------------------------------
-# CẤU HÌNH TRANG
-# -------------------------------------------------------------
 st.set_page_config(
     page_title="PDP Photo Editor Web",
     page_icon="🖼️",
@@ -59,11 +54,7 @@ st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
 
 if not HAS_CORE:
     st.error(f"❌ Không thể tải module core.py: {CORE_ERROR}")
-    st.info("💡 Vui lòng kiểm tra lại cấu hình file core.py và requirements.txt.")
     st.stop()
-
-if not HAS_CROPPER:
-    st.warning("⚠️ Thư viện `streamlit-cropper` chưa khả dụng. Chức năng Cắt ảnh sẽ chuyển sang chế độ dự phòng.")
 
 TEMP_DIR = tempfile.gettempdir()
 INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
@@ -72,68 +63,12 @@ FILTER_BASE_PATH = os.path.join(TEMP_DIR, "web_filter_base_temp.png")
 
 
 def update_input_image_and_refresh():
-    """Đồng bộ file output sang input và lưu mốc khôi phục cho bộ lọc màu."""
     if os.path.exists(OUTPUT_PATH):
         shutil.copy(OUTPUT_PATH, INPUT_PATH)
         shutil.copy(OUTPUT_PATH, FILTER_BASE_PATH)
         st.session_state["processed_img"] = OUTPUT_PATH
 
 
-def analyze_image_ai(image_path):
-    """Phân tích các chỉ số ảnh và đưa ra gợi ý thông số chỉnh sửa bằng AI/OpenCV."""
-    pil_img = Image.open(image_path).convert("RGB")
-    img_np = np.array(pil_img)
-
-    if cv2 is not None:
-        img_lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
-        l_channel, _, _ = cv2.split(img_lab)
-        raw_brightness = np.mean(l_channel)
-        p10 = np.percentile(l_channel, 10) / 2.55
-        p90 = np.percentile(l_channel, 90) / 2.55
-        std_contrast = round(float(np.std(l_channel)), 1)
-        gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-        laplacian_var = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 1)
-    else:
-        raw_brightness = np.mean(img_np)
-        p10, p90 = 20.0, 80.0
-        std_contrast = 50.0
-        laplacian_var = 150.0
-
-    brightness_pct = round((raw_brightness / 255.0) * 100, 1)
-    target_pct = 58.0
-    suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
-    suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
-
-    suggested_shadows = int(np.clip((25 - p10) * 1.2, 0, 50)) if p10 < 25 else 0
-    suggested_highlights = -15 if p90 > 75 else 0
-    suggested_contrast = 15 if std_contrast < 50 else 5
-    suggested_clarity = 15
-    suggested_dehaze = 10
-    suggested_saturation = 10
-
-    if laplacian_var < 100:
-        suggested_sharpening = 40
-    elif laplacian_var < 300:
-        suggested_sharpening = 25
-    else:
-        suggested_sharpening = 15
-
-    return {
-        "brightness_pct": brightness_pct,
-        "std_contrast": std_contrast,
-        "sharpness": laplacian_var,
-        "exposure": suggested_exposure,
-        "contrast": suggested_contrast,
-        "highlights": suggested_highlights,
-        "shadows": suggested_shadows,
-        "saturation": suggested_saturation,
-        "clarity": suggested_clarity,
-        "dehaze": suggested_dehaze,
-        "sharpening": suggested_sharpening,
-    }
-
-
-# Quản lý Session State
 SLIDER_KEYS = {
     "exposure": ("exp_s", 0.0),
     "contrast": ("cnt_s", 0),
@@ -159,24 +94,21 @@ if "active_filter" not in st.session_state:
 
 
 def apply_ai_suggestions():
-    """Gán giá trị đề xuất từ AI vào các slider tương ứng trong Session State."""
     if st.session_state["ai_analysis"]:
         ai = st.session_state["ai_analysis"]
         for param, (sk, _) in SLIDER_KEYS.items():
-            val = ai[param]
-            st.session_state[param] = val
-            st.session_state[sk] = val
+            if param in ai:
+                val = ai[param]
+                st.session_state[param] = val
+                st.session_state[sk] = val
 
 
-# -------------------------------------------------------------
-# THANH BÊN (SIDEBAR) & TẢI ẢNH
-# -------------------------------------------------------------
 st.sidebar.header("📂 Tải Ảnh Lên")
 uploaded_file = st.sidebar.file_uploader("Chọn tệp ảnh", type=["jpg", "jpeg", "png", "webp"])
 
 if uploaded_file is not None:
     if "last_uploaded" not in st.session_state or st.session_state["last_uploaded"] != uploaded_file.name:
-        image = Image.open(uploaded_file).convert("RGB")
+        image = Image.open(uploaded_file)
         image.save(INPUT_PATH)
         image.save(OUTPUT_PATH)
         image.save(FILTER_BASE_PATH)
@@ -196,45 +128,40 @@ if uploaded_file is not None:
         st.subheader("Ảnh Gốc / Hiện Tại")
         st.image(image, use_container_width=True)
 
-    # -------------------------------------------------------------
-    # CÁC TAB CHỨC NĂNG
-    # -------------------------------------------------------------
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "✨ Chỉnh Sáng & AI",
+        "✨ Chỉnh Sáng & Màu",
         "🎨 Bộ Lọc Màu",
         "📝 Thêm Chữ (Text)",
-        "📐 Resize & Upscale",
-        "✂️ Tách Nền AI",
+        "📐 Resize & Phóng To",
+        "🤖 Tách Nền AI (U2Net)",
         "🔄 Xoay, Lật & Cắt Ảnh"
     ])
 
-    # --- TAB 1: CHỈNH SÁNG VÀ AI ---
+    # --- TAB 1: CHỈNH SÁNG & MÀU ---
     with tab1:
         st.markdown("### Chỉnh sửa thông số ảnh")
 
-        with st.expander("🤖 **Phân tích ảnh bằng AI & Gợi ý thông số**", expanded=True):
+        with st.expander("🔍 **Phân tích thông số ảnh tự động**", expanded=True):
             col_ai1, col_ai2 = st.columns([1, 2])
             with col_ai1:
-                if st.button("🔍 Phân tích ảnh bằng AI"):
-                    with st.spinner("AI đang phân tích..."):
-                        st.session_state["ai_analysis"] = analyze_image_ai(INPUT_PATH)
+                if st.button("📊 Phân Tích Thông Số Ảnh"):
+                    with st.spinner("Đang tính toán..."):
+                        st.session_state["ai_analysis"] = analyze_image_fast(INPUT_PATH)
 
             with col_ai2:
                 if st.session_state["ai_analysis"]:
                     ai_res = st.session_state["ai_analysis"]
                     st.write(
                         f"📊 **Chỉ số gốc:** Độ sáng `{ai_res['brightness_pct']}%` | "
-                        f"Tương phản `{ai_res['std_contrast']}` | "
-                        f"Độ nét `{ai_res['sharpness']}`"
+                        f"Độ tương phản `{ai_res['std_contrast']}`"
                     )
                     st.write(
-                        f"💡 **AI đề xuất:** "
-                        f"Exp `{ai_res['exposure']:+.1f}` | "
-                        f"Contrast `{ai_res['contrast']:+d}` | "
-                        f"Shadows `{ai_res['shadows']:+d}` | "
-                        f"Sharpening `{ai_res['sharpening']}`"
+                        f"💡 **Đề xuất:** "
+                        f"Phơi sáng `{ai_res['exposure']:+.1f}` | "
+                        f"Tương phản `{ai_res['contrast']:+d}` | "
+                        f"Vùng tối `{ai_res['shadows']:+d}`"
                     )
-                    st.button("👉 Áp dụng thông số AI vào Slider", on_click=apply_ai_suggestions)
+                    st.button("👉 Áp dụng đề xuất vào Slider", on_click=apply_ai_suggestions)
 
         st.markdown("---")
 
@@ -256,18 +183,10 @@ if uploaded_file is not None:
                 "Vùng tối (Shadows)", -100, 100, key="sh_s",
                 on_change=lambda: st.session_state.update({"shadows": st.session_state.sh_s})
             )
+        with c2:
             st.slider(
                 "Độ bão hòa (Saturation)", -100, 100, key="sat_s",
                 on_change=lambda: st.session_state.update({"saturation": st.session_state.sat_s})
-            )
-        with c2:
-            st.slider(
-                "Độ rõ nét (Clarity)", -100, 100, key="clr_s",
-                on_change=lambda: st.session_state.update({"clarity": st.session_state.clr_s})
-            )
-            st.slider(
-                "Khử mờ (Dehaze)", 0, 100, key="dhz_s",
-                on_change=lambda: st.session_state.update({"dehaze": st.session_state.dhz_s})
             )
             st.slider(
                 "Sắc nét (Sharpening)", 0, 100, key="shp_s",
@@ -277,26 +196,15 @@ if uploaded_file is not None:
         if st.button("Áp dụng ánh sáng & màu sắc"):
             with st.spinner("Đang xử lý ảnh..."):
                 try:
-                    exp_val = float(st.session_state.get("exposure", 0.0))
-                    cnt_val = float(st.session_state.get("contrast", 0))
-                    hl_val = float(st.session_state.get("highlights", 0))
-                    sh_val = float(st.session_state.get("shadows", 0))
-                    sat_val = float(st.session_state.get("saturation", 0))
-                    clr_val = float(st.session_state.get("clarity", 0))
-                    dhz_val = float(st.session_state.get("dehaze", 0))
-                    shp_val = float(st.session_state.get("sharpening", 0))
-
                     adjust_image_advanced(
                         INPUT_PATH,
                         OUTPUT_PATH,
-                        exposure=exp_val,
-                        contrast=cnt_val,
-                        highlights=hl_val,
-                        shadows=sh_val,
-                        saturation=sat_val,
-                        clarity=clr_val,
-                        dehaze=dhz_val,
-                        sharpening=shp_val
+                        exposure=float(st.session_state.get("exposure", 0.0)),
+                        contrast=float(st.session_state.get("contrast", 0)),
+                        highlights=float(st.session_state.get("highlights", 0)),
+                        shadows=float(st.session_state.get("shadows", 0)),
+                        saturation=float(st.session_state.get("saturation", 0)),
+                        sharpening=float(st.session_state.get("sharpening", 0))
                     )
                     update_input_image_and_refresh()
                     st.success("Đã áp dụng thông số thành công!")
@@ -307,7 +215,6 @@ if uploaded_file is not None:
     # --- TAB 2: BỘ LỌC MÀU ---
     with tab2:
         st.markdown("### Chọn Bộ Lọc Nghệ Thuật")
-
         filter_options = [
             "Gốc (Original / Không bộ lọc)",
             "Trắng Đen (Grayscale)",
@@ -327,7 +234,6 @@ if uploaded_file is not None:
             if st.button("✨ Áp Dụng / Đổi Bộ Lọc"):
                 source_path = FILTER_BASE_PATH if os.path.exists(FILTER_BASE_PATH) else INPUT_PATH
                 apply_filter(source_path, OUTPUT_PATH, selected_filter)
-
                 shutil.copy(OUTPUT_PATH, INPUT_PATH)
                 st.session_state["processed_img"] = OUTPUT_PATH
                 st.session_state["active_filter"] = selected_filter
@@ -386,9 +292,8 @@ if uploaded_file is not None:
                 last_point = canvas_result.json_data["objects"][-1]
                 pos_x = int(last_point["left"] * scale_ratio)
                 pos_y = int(last_point["top"] * scale_ratio)
-                st.success(f"📍 Tọa độ chọn: X = `{pos_x}px`, Y = `{pos_y}px` | Kích thước font thực tế: `{actual_font_size}px`")
+                st.success(f"📍 Tọa độ chọn: X = `{pos_x}px`, Y = `{pos_y}px` | Font: `{actual_font_size}px`")
         else:
-            st.info("Nhập tọa độ chữ thủ công:")
             pos_x = st.number_input("Tọa độ X", value=50)
             pos_y = st.number_input("Tọa độ Y", value=50)
 
@@ -409,10 +314,10 @@ if uploaded_file is not None:
                 st.success("Đã thêm chữ thành công!")
                 st.rerun()
 
-    # --- TAB 4: RESIZE & UPSCALE ---
+    # --- TAB 4: RESIZE & PHÓNG TO ---
     with tab4:
         st.markdown("### Phóng to / Thay đổi kích thước")
-        resize_type = st.radio("Phương pháp:", ["Resize Chuẩn", "AI Super Resolution (Upscale)"])
+        resize_type = st.radio("Phương pháp:", ["Resize Chuẩn", "Phóng To Chất Lượng Cao (Lanczos Upscale)"])
         if resize_type == "Resize Chuẩn":
             w = st.number_input("Chiều rộng (px)", value=image.width)
             h = st.number_input("Chiều cao (px)", value=image.height)
@@ -422,25 +327,58 @@ if uploaded_file is not None:
                 st.rerun()
         else:
             scale = st.selectbox("Tỉ lệ phóng to:", [2, 4])
-            if st.button("Phóng to bằng AI"):
-                with st.spinner("Đang nâng cấp chất lượng..."):
+            if st.button("Phóng to ảnh"):
+                with st.spinner("Đang phóng to ảnh..."):
                     resize_ai_upscale(INPUT_PATH, OUTPUT_PATH, scale_factor=scale)
                     update_input_image_and_refresh()
                     st.rerun()
 
-    # --- TAB 5: TÁCH NỀN AI ---
+    # --- TAB 5: TÁCH NỀN AI (U2NET) ---
     with tab5:
-        st.markdown("### Tách nền tự động bằng AI (U2Net / Rembg)")
-        st.caption("Hệ thống tự động sử dụng mô hình U2NetP tối ưu tốc độ và độ chính xác.")
-        if st.button("Bắt đầu Tách Nền"):
-            with st.spinner("AI đang tách nền... (lần đầu tiên có thể mất vài giây để tải mô hình nhẹ)"):
-                try:
-                    remove_background_ai(INPUT_PATH, OUTPUT_PATH)
-                    update_input_image_and_refresh()
-                    st.success("Tách nền thành công!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Lỗi tách nền: {e}")
+        st.markdown("### 🤖 Tách Nền Tự Động Bằng AI (U2Net Engine)")
+        st.caption("Sử dụng mạng Nơ-ron U2Net trực tiếp qua ONNX Runtime thuần. Không phụ thuộc thư viện rembg/OpenCV heavy.")
+
+        mode = st.radio("Chế độ tách nền:", ["🤖 AI U2Net (Tự Động)", "🎨 Chroma Key (Tách Nền Theo Màu)"])
+
+        if mode == "🤖 AI U2Net (Tự Động)":
+            model_choice = st.selectbox(
+                "Chọn mô hình AI:",
+                ["u2netp (Tối ưu Cloud / Siêu nhẹ 4.7MB)", "u2net (Độ chính xác cao 176MB)"],
+                index=0
+            )
+            selected_model = "u2netp" if "u2netp" in model_choice else "u2net"
+
+            if st.button("⚡ Thực Hiện Tách Nền AI (U2Net)"):
+                with st.spinner(f"Đang chạy mô hình {selected_model}... Lần đầu chạy có thể mất vài giây để tải weights."):
+                    try:
+                        remove_background_u2net(INPUT_PATH, OUTPUT_PATH, model_type=selected_model)
+                        update_input_image_and_refresh()
+                        st.success("Đã tách nền AI thành công!")
+                        st.rerun()
+                    except Exception as err:
+                        st.error(f"❌ Lỗi khi tách nền AI: {err}")
+
+        else:
+            col_bg1, col_bg2 = st.columns(2)
+            with col_bg1:
+                bg_color_hex = st.color_picker("Chọn màu nền cần xóa:", "#FFFFFF")
+            with col_bg2:
+                tolerance = st.slider("Ngưỡng dung sai màu (Tolerance):", 5, 150, 40)
+
+            if st.button("⚡ Thực Hiện Xóa Nền Màu"):
+                with st.spinner("Đang xử lý tách nền..."):
+                    try:
+                        remove_background_by_color(
+                            INPUT_PATH,
+                            OUTPUT_PATH,
+                            target_color_hex=bg_color_hex,
+                            tolerance=tolerance
+                        )
+                        update_input_image_and_refresh()
+                        st.success("Đã xóa nền thành công!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Lỗi khi xóa nền: {e}")
 
     # --- TAB 6: XOAY, LẬT & CẮT ÁNH ---
     with tab6:
@@ -468,7 +406,6 @@ if uploaded_file is not None:
 
         if HAS_CROPPER:
             st.info("💡 **Hướng dẫn:** Kéo khung hoặc các góc để chỉnh vị trí cắt.")
-
             col_crp_opt1, col_crp_opt2 = st.columns(2)
             with col_crp_opt1:
                 aspect_choice = st.selectbox(
@@ -486,13 +423,12 @@ if uploaded_file is not None:
                 "3:4 (Chân dung)": (3, 4),
                 "9:16 (Story/Reels)": (9, 16)
             }
-            selected_ratio = aspect_dict[aspect_choice]
 
             cropped_result = st_cropper(
                 curr_img,
                 realtime_update=True,
                 box_color=box_color,
-                aspect_ratio=selected_ratio,
+                aspect_ratio=aspect_dict[aspect_choice],
                 key="interactive_cropper"
             )
 
@@ -506,9 +442,8 @@ if uploaded_file is not None:
                 st.rerun()
         else:
             orig_w, orig_h = curr_img.size
-            st.info("Chế độ cắt theo tỉ lệ cố định:")
             ratio_option = st.selectbox(
-                "Chọn tỉ lệ cắt mong muốn:",
+                "Chọn tỉ lệ cắt:",
                 ["1:1 (Vuông)", "4:3 (Chuẩn)", "16:9 (Màn hình rộng)", "3:4 (Chân dung)", "9:16 (Story/Reels)"]
             )
             ratio_map = {
@@ -555,7 +490,7 @@ if uploaded_file is not None:
 
             with open(st.session_state["processed_img"], "rb") as file:
                 st.download_button(
-                    label="💾 Tải Ảnh Kết Quả Về Máy",
+                    label="💾 Tải Ảnh Kết Quả Về Máy (PNG trong suốt)",
                     data=file,
                     file_name="edited_image.png",
                     mime="image/png"

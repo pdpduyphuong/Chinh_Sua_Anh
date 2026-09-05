@@ -1,113 +1,95 @@
 # core.py
 import os
 import sys
-import cv2
-import requests
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
+from u2net_engine import U2NetInference
 
-# -------------------------------------------------------------
-# XỬ LÝ REMBG VÀ U2NET FALLBACK
-# -------------------------------------------------------------
-try:
-    from rembg import remove, new_session
-
-    HAS_REMBG = True
-except Exception:
-    HAS_REMBG = False
-
-try:
-    import onnxruntime as ort
-
-    HAS_ONNX = True
-except Exception:
-    HAS_ONNX = False
+# Cấu hình Singleton cho U2Net Inference Engine
+_U2NET_ENGINE = None
 
 
-def download_u2netp_model(model_path: str):
-    """Tải model U2NetP (phiên bản siêu nhẹ ~40MB) nếu chưa tồn tại."""
-    url = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
-    if not os.path.exists(model_path):
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        with open(model_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+def get_u2net_engine(model_name: str = "u2netp") -> U2NetInference:
+    global _U2NET_ENGINE
+    if _U2NET_ENGINE is None:
+        _U2NET_ENGINE = U2NetInference(model_name=model_name)
+    return _U2NET_ENGINE
 
 
-def remove_background_u2net_direct(input_path: str, output_path: str):
-    """Xử lý tách nền trực tiếp bằng U2NetP ONNX Runtime (Giải pháp dự phòng khi rembg lỗi)."""
-    model_dir = os.path.join(os.path.expanduser("~"), ".u2net")
-    os.makedirs(model_dir, exist_ok=True)
-    model_path = os.path.join(model_dir, "u2netp.onnx")
-
-    if not os.path.exists(model_path):
-        download_u2netp_model(model_path)
-
-    # Khởi tạo ONNX Session
-    session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
-
-    # Preprocess Image
-    img = Image.open(input_path).convert("RGB")
-    orig_w, orig_h = img.size
-    img_resized = img.resize((320, 320), Image.Resampling.LANCZOS)
-    img_np = np.array(img_resized, dtype=np.float32) / 255.0
-
-    # Normalize (Standard ImageNet values)
-    tmp_img = np.zeros((320, 320, 3), dtype=np.float32)
-    tmp_img[:, :, 0] = (img_np[:, :, 0] - 0.485) / 0.229
-    tmp_img[:, :, 1] = (img_np[:, :, 1] - 0.456) / 0.224
-    tmp_img[:, :, 2] = (img_np[:, :, 2] - 0.406) / 0.225
-
-    tmp_img = tmp_img.transpose((2, 0, 1))
-    tmp_img = np.expand_dims(tmp_img, axis=0)
-
-    # Run ONNX Model
-    input_name = session.get_inputs()[0].name
-    output_name = session.get_outputs()[0].name
-    result = session.run([output_name], {input_name: tmp_img.astype(np.float32)})
-
-    # Postprocess Mask
-    pred = result[0][0, 0, :, :]
-    ma = np.max(pred)
-    mi = np.min(pred)
-    dn = (pred - mi) / (ma - mi)
-    mask = Image.fromarray((dn * 255).astype(np.uint8)).resize((orig_w, orig_h), Image.Resampling.LANCZOS)
-
-    # Apply Alpha Mask to Original Image
-    img_rgba = Image.open(input_path).convert("RGBA")
-    img_rgba.putalpha(mask)
-    img_rgba.save(output_path, "PNG")
-
-
-def remove_background_ai(input_path: str, output_path: str):
+def remove_background_u2net(input_path: str, output_path: str, model_type: str = "u2netp"):
     """
-    Hàm tách nền linh hoạt:
-    1. Ưu tiên chạy rembg.
-    2. Nếu rembg lỗi hoặc thiếu session, tự chuyển sang U2NetP direct.
+    Tách nền ảnh tự động bằng AI U2Net / U2NetP.
     """
-    success = False
-    if HAS_REMBG:
-        try:
-            inp = Image.open(input_path)
-            # Thử dùng u2netp session để nhẹ và nhanh hơn
-            session = new_session("u2netp")
-            out = remove(inp, session=session)
-            out.save(output_path)
-            success = True
-        except Exception:
-            success = False
-
-    if not success:
-        if HAS_ONNX:
-            remove_background_u2net_direct(input_path, output_path)
-        else:
-            raise RuntimeError("Không thể khởi chạy rembg lẫn ONNX Runtime để tách nền.")
+    img = Image.open(input_path)
+    engine = get_u2net_engine(model_name=model_type)
+    result_img = engine.remove_background(img)
+    result_img.save(output_path, "PNG")
 
 
-# -------------------------------------------------------------
-# CÁC HÀM XỬ LÝ ẢNH CORE CỦA BẠN (GIỮ NGUYÊN 100%)
-# -------------------------------------------------------------
+def remove_background_by_color(
+        input_path: str,
+        output_path: str,
+        target_color_hex: str = "#FFFFFF",
+        tolerance: int = 30
+):
+    """
+    Tách nền thủ công bằng chọn màu sắc (Chroma Keying).
+    """
+    img = Image.open(input_path).convert("RGBA")
+    data = np.array(img, dtype=np.int16)
+
+    hex_val = target_color_hex.lstrip('#')
+    r_target = int(hex_val[0:2], 16)
+    g_target = int(hex_val[2:4], 16)
+    b_target = int(hex_val[4:6], 16)
+
+    r_diff = data[:, :, 0] - r_target
+    g_diff = data[:, :, 1] - g_target
+    b_diff = data[:, :, 2] - b_target
+
+    dist = np.sqrt(r_diff ** 2 + g_diff ** 2 + b_diff ** 2)
+    mask = dist <= tolerance
+    data[mask, 3] = 0
+
+    result_img = Image.fromarray(data.astype(np.uint8), "RGBA")
+    result_img.save(output_path, "PNG")
+
+
+def analyze_image_fast(input_path: str) -> dict:
+    """Phân tích các chỉ số ảnh sử dụng NumPy thuần."""
+    pil_img = Image.open(input_path).convert("RGB")
+    img_np = np.array(pil_img, dtype=np.float32)
+
+    gray = 0.299 * img_np[:, :, 0] + 0.587 * img_np[:, :, 1] + 0.114 * img_np[:, :, 2]
+    raw_brightness = np.mean(gray)
+    brightness_pct = round((raw_brightness / 255.0) * 100, 1)
+
+    std_contrast = round(float(np.std(gray)), 1)
+    p10 = np.percentile(gray, 10) / 2.55
+    p90 = np.percentile(gray, 90) / 2.55
+
+    target_pct = 58.0
+    suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
+    suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
+
+    suggested_shadows = int(np.clip((25 - p10) * 1.2, 0, 50)) if p10 < 25 else 0
+    suggested_highlights = -15 if p90 > 75 else 0
+    suggested_contrast = 15 if std_contrast < 50 else 5
+
+    return {
+        "brightness_pct": brightness_pct,
+        "std_contrast": std_contrast,
+        "exposure": suggested_exposure,
+        "contrast": suggested_contrast,
+        "highlights": suggested_highlights,
+        "shadows": suggested_shadows,
+        "saturation": 10,
+        "clarity": 15,
+        "dehaze": 0,
+        "sharpening": 20,
+    }
+
+
 def get_system_font(font_name: str, font_size: int):
     font_map = {
         "Arial": ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf"],
@@ -154,11 +136,14 @@ def add_text_to_image(
         font_size: int,
         color: tuple
 ):
-    img = Image.open(input_path).convert("RGB")
-    draw = ImageDraw.Draw(img)
+    img = Image.open(input_path).convert("RGBA")
+    txt_layer = Image.new("RGBA", img.size, (255, 255, 255, 0))
+    draw = ImageDraw.Draw(txt_layer)
     font = get_system_font(font_name, font_size)
-    draw.text(position, text, fill=color, font=font)
-    img.save(output_path)
+
+    draw.text(position, text, fill=color + (255,), font=font)
+    combined = Image.alpha_composite(img, txt_layer)
+    combined.save(output_path, "PNG")
 
 
 def adjust_image_advanced(
@@ -173,13 +158,20 @@ def adjust_image_advanced(
         dehaze: float = 0.0,
         sharpening: float = 0.0
 ):
-    pil_img = Image.open(input_path).convert("RGB")
-    img = np.array(pil_img, dtype=np.float32)
+    pil_img = Image.open(input_path)
+    is_rgba = pil_img.mode == "RGBA"
+
+    if is_rgba:
+        alpha = pil_img.split()[3]
+        rgb_img = pil_img.convert("RGB")
+    else:
+        rgb_img = pil_img.convert("RGB")
+
+    img = np.array(rgb_img, dtype=np.float32)
 
     exp, cnt = float(exposure), float(contrast)
     hl, sh = float(highlights), float(shadows)
-    sat, clr = float(saturation), float(clarity)
-    dhz, shp = float(dehaze), float(sharpening)
+    sat, shp = float(saturation), float(sharpening)
 
     if exp != 0.0:
         img *= (2.0 ** exp)
@@ -189,13 +181,11 @@ def adjust_image_advanced(
         img = 128.0 + factor * (img - 128.0)
 
     if hl != 0.0 or sh != 0.0:
-        gray = cv2.cvtColor(np.clip(img, 0, 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
-        norm_gray = gray / 255.0
-
+        gray = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]) / 255.0
         if hl != 0.0:
-            img += (hl * 1.5) * np.power(norm_gray, 2)[:, :, np.newaxis]
+            img += (hl * 1.5) * np.power(gray, 2)[:, :, np.newaxis]
         if sh != 0.0:
-            img += (sh * 1.5) * (1.0 - np.power(norm_gray, 2))[:, :, np.newaxis]
+            img += (sh * 1.5) * (1.0 - np.power(gray, 2))[:, :, np.newaxis]
 
     img = np.clip(img, 0, 255).astype(np.uint8)
     result_pil = Image.fromarray(img)
@@ -205,41 +195,57 @@ def adjust_image_advanced(
         result_pil = enhancer.enhance(max(0.0, 1.0 + (sat / 100.0)))
 
     if shp > 0.0:
-        img_np = np.array(result_pil)
-        blurred = cv2.GaussianBlur(img_np, (0, 0), 3)
-        sharpened = cv2.addWeighted(img_np, 1.0 + (shp / 50.0), blurred, -(shp / 50.0), 0)
-        result_pil = Image.fromarray(np.clip(sharpened, 0, 255).astype(np.uint8))
+        enhancer = ImageEnhance.Sharpness(result_pil)
+        result_pil = enhancer.enhance(1.0 + (shp / 25.0))
 
-    result_pil.save(output_path)
+    if is_rgba:
+        result_pil = result_pil.convert("RGBA")
+        result_pil.putalpha(alpha)
+        result_pil.save(output_path, "PNG")
+    else:
+        result_pil.save(output_path)
 
 
 def apply_filter(input_path: str, output_path: str, filter_type: str):
-    img = Image.open(input_path).convert("RGB")
+    img = Image.open(input_path)
+    has_alpha = img.mode == "RGBA"
+
+    if has_alpha:
+        alpha = img.split()[3]
+        rgb_img = img.convert("RGB")
+    else:
+        rgb_img = img.convert("RGB")
+
     if filter_type == "Gốc (Original / Không bộ lọc)":
         img.save(output_path)
         return
     elif filter_type == "Trắng Đen (Grayscale)":
-        img = img.convert("L").convert("RGB")
+        rgb_img = rgb_img.convert("L").convert("RGB")
     elif filter_type == "Cổ Điển (Sepia)":
-        np_img = np.array(img, dtype=np.float32)
+        np_img = np.array(rgb_img, dtype=np.float32)
         sepia_matrix = np.array([
             [0.393, 0.769, 0.189],
             [0.349, 0.686, 0.168],
             [0.272, 0.534, 0.131]
         ])
-        img = Image.fromarray(np.clip(np_img.dot(sepia_matrix.T), 0, 255).astype(np.uint8))
+        rgb_img = Image.fromarray(np.clip(np_img.dot(sepia_matrix.T), 0, 255).astype(np.uint8))
     elif filter_type == "Rực Rỡ (Vintage/Warm)":
-        np_img = np.array(img, dtype=np.float32)
+        np_img = np.array(rgb_img, dtype=np.float32)
         np_img[:, :, 0] = np.clip(np_img[:, :, 0] * 1.15, 0, 255)
         np_img[:, :, 2] = np.clip(np_img[:, :, 2] * 0.85, 0, 255)
-        img = Image.fromarray(np_img.astype(np.uint8))
+        rgb_img = Image.fromarray(np_img.astype(np.uint8))
     elif filter_type == "Lạnh (Cool Tone)":
-        np_img = np.array(img, dtype=np.float32)
+        np_img = np.array(rgb_img, dtype=np.float32)
         np_img[:, :, 0] = np.clip(np_img[:, :, 0] * 0.85, 0, 255)
         np_img[:, :, 2] = np.clip(np_img[:, :, 2] * 1.15, 0, 255)
-        img = Image.fromarray(np_img.astype(np.uint8))
+        rgb_img = Image.fromarray(np_img.astype(np.uint8))
 
-    img.save(output_path)
+    if has_alpha:
+        rgb_img = rgb_img.convert("RGBA")
+        rgb_img.putalpha(alpha)
+        rgb_img.save(output_path, "PNG")
+    else:
+        rgb_img.save(output_path)
 
 
 def rotate_or_flip_image(input_path: str, output_path: str, action: str):
