@@ -30,49 +30,74 @@ OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
 # -------------------------------------------------------------------
 def analyze_image_ai(image_path):
     """
-    Đọc ảnh, phân tích độ sáng, tương phản, độ nét và trả về các thông số gợi ý cho Slider.
+    Phân tích ảnh màu chuẩn RGB và đề xuất bộ thông số làm sáng, nổi khối, sắc nét.
     """
-    img = cv2.imread(image_path)
-    if img is None:
-        return None
+    # 1. Đọc ảnh bằng PIL để giữ chuẩn màu RGB (tránh lỗi BGR/grayscale của OpenCV)
+    pil_img = Image.open(image_path).convert("RGB")
+    img_np = np.array(pil_img)
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    mean_brightness = np.mean(gray)  # Scale 0 - 255
-    std_contrast = np.std(gray)  # Độ lệch chuẩn đại diện cho độ tương phản
-    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()  # Độ sắc nét
+    # 2. Chuyển sang không gian màu LAB để đo độ sáng chuẩn (kênh L) mà không làm lệch màu
+    img_lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
+    l_channel, a_channel, b_channel = cv2.split(img_lab)
 
-    # Tính toán tham số gợi ý
-    # 1. Exposure (-2.0 đến 2.0)
-    suggested_exposure = 0.0
-    if mean_brightness < 100:
-        suggested_exposure = round((125 - mean_brightness) / 100.0, 1)
-    elif mean_brightness > 165:
-        suggested_exposure = round((145 - mean_brightness) / 100.0, 1)
-    suggested_exposure = float(np.clip(suggested_exposure, -2.0, 2.0))
+    # Tính toán các chỉ số trên kênh độ sáng L
+    mean_brightness = np.mean(l_channel)  # Thang độ sáng 0 - 255
+    p10 = np.percentile(l_channel, 10)     # Vùng tối (Shadows)
+    p90 = np.percentile(l_channel, 90)     # Vùng sáng (Highlights)
+    std_contrast = np.std(l_channel)      # Độ tương phản
 
-    # 2. Contrast (-100 đến 100)
-    suggested_contrast = 0
-    if std_contrast < 45:
-        suggested_contrast = int((50 - std_contrast) * 1.5)
-    elif std_contrast > 75:
-        suggested_contrast = -int((std_contrast - 70) * 1.2)
-    suggested_contrast = int(np.clip(suggested_contrast, -100, 100))
+    # Đo độ nét bằng OpenCV Laplacian
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+    laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
 
-    # 3. Sharpening (0 đến 100)
-    suggested_sharpening = 0
+    # -------------------------------------------------------------
+    # TÍNH TOÁN BỘ THÔNG SỐ LÀM ĐẸP (SÁNG - NÉT - RỰC RỠ)
+    # -------------------------------------------------------------
+    # A. Exposure (Mục tiêu đưa độ sáng trung bình L lên khoảng 135 - 145)
+    target_l = 140.0
+    suggested_exposure = (target_l - mean_brightness) / 80.0
+    suggested_exposure = float(np.clip(suggested_exposure, -0.8, 1.2))
+
+    # B. Shadows (Kéo sáng vùng tối bị chìm)
+    suggested_shadows = 0
+    if p10 < 60:
+        suggested_shadows = int((60 - p10) * 1.1)
+    suggested_shadows = int(np.clip(suggested_shadows, 0, 50))
+
+    # C. Highlights (Hạ nhẹ vùng sáng để tránh gắt/cháy)
+    suggested_highlights = -15 if p90 > 190 else 0
+
+    # D. Contrast (Giữ độ tương phản vừa đủ)
+    suggested_contrast = 15 if std_contrast < 50 else 5
+
+    # E. Clarity & Dehaze (Giúp ảnh trong trẻo, xóa mù)
+    suggested_clarity = 20
+    suggested_dehaze = 15
+
+    # F. Sharpening (Tăng độ nét dựa trên độ nhòe gốc)
     if laplacian_var < 100:
-        suggested_sharpening = int((100 - laplacian_var) * 0.4)
-    suggested_sharpening = int(np.clip(suggested_sharpening, 0, 100))
+        suggested_sharpening = 45
+    elif laplacian_var < 300:
+        suggested_sharpening = 30
+    else:
+        suggested_sharpening = 15
+
+    # G. Saturation (Đảm bảo luôn giữ màu sắc tươi tắn)
+    suggested_saturation = 10
 
     return {
         "mean_brightness": round(mean_brightness, 1),
         "std_contrast": round(std_contrast, 1),
         "sharpness": round(laplacian_var, 1),
-        "exposure": suggested_exposure,
+        "exposure": round(suggested_exposure, 1),
         "contrast": suggested_contrast,
+        "highlights": suggested_highlights,
+        "shadows": suggested_shadows,
+        "saturation": suggested_saturation,
+        "clarity": suggested_clarity,
+        "dehaze": suggested_dehaze,
         "sharpening": suggested_sharpening,
     }
-
 
 # -------------------------------------------------------------------
 # KHỞI TẠO SESSION STATE CHO CÁC SLIDER

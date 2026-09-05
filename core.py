@@ -60,120 +60,49 @@ def resize_ai_upscale(image_path, output_path, model_name="EDSR", scale_factor=2
 # 2. XỬ LÝ NÂNG CAO (ÁNH SÁNG, MÀU SẮC, ĐỘ RÕ NÉT)
 # -----------------------------------------------------------------
 def adjust_image_advanced(
-    image_path,
+    input_path,
     output_path,
     exposure=0.0,
-    contrast=0.0,
-    highlights=0.0,
-    shadows=0.0,
-    whites=0.0,
-    blacks=0.0,
-    tint=0.0,
-    vibrance=0.0,
-    saturation=0.0,
-    clarity=0.0,
-    dehaze=0.0,
-    sharpening=0.0,
-    sharpen_radius=1.0,
-    noise_reduction=0.0
+    contrast=0,
+    highlights=0,
+    shadows=0,
+    saturation=0,
+    clarity=0,
+    dehaze=0,
+    sharpening=0,
+    noise_reduction=0
 ):
-    """
-    Xử lý các thông số ánh sáng, màu sắc và độ rõ nét chuyên nghiệp
-    """
-    img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        raise ValueError("Không thể đọc file ảnh từ đường dẫn đã chọn!")
+    # 1. Đọc ảnh bằng PIL để giữ nguyên RGB
+    img_pil = Image.open(input_path).convert("RGB")
+    img = np.array(img_pil)
 
-    has_alpha = len(img.shape) == 3 and img.shape[2] == 4
-    if has_alpha:
-        bgr = img[:, :, :3].astype(np.float32) / 255.0
-        alpha = img[:, :, 3]
-    else:
-        bgr = img.astype(np.float32) / 255.0
-
-    # 1. Khử nhiễu (Noise Reduction)
-    if noise_reduction > 0:
-        h_val = (noise_reduction / 100.0) * 10.0
-        bgr_8u = (bgr * 255.0).astype(np.uint8)
-        bgr_8u = cv2.fastNlMeansDenoisingColored(bgr_8u, None, h_val, h_val, 7, 21)
-        bgr = bgr_8u.astype(np.float32) / 255.0
-
-    # 2. Tint (Sắc thái)
-    if tint != 0:
-        shift = (tint / 100.0) * 0.1
-        bgr[:, :, 1] = np.clip(bgr[:, :, 1] - shift, 0, 1)
-
-    # 3. Tính toán Luminance & Mask
-    luminance = 0.299 * bgr[:, :, 2] + 0.587 * bgr[:, :, 1] + 0.114 * bgr[:, :, 0]
-
-    highlight_mask = np.clip((luminance - 0.5) * 2.0, 0, 1)[:, :, np.newaxis]
-    shadow_mask = np.clip((0.5 - luminance) * 2.0, 0, 1)[:, :, np.newaxis]
-    white_mask = np.clip((luminance - 0.75) * 4.0, 0, 1)[:, :, np.newaxis]
-    black_mask = np.clip((0.25 - luminance) * 4.0, 0, 1)[:, :, np.newaxis]
-
-    # 4. Highlights & Shadows
-    if highlights != 0:
-        factor = 1.0 + (highlights / 100.0) * 0.5
-        bgr = bgr * (1 - highlight_mask) + (bgr * factor) * highlight_mask
-
-    if shadows != 0:
-        factor = 1.0 + (shadows / 100.0) * 0.6
-        bgr = bgr * (1 - shadow_mask) + np.power(np.clip(bgr, 1e-6, 1.0), 1.0 / factor) * shadow_mask
-
-    # 5. Whites & Blacks
-    if whites != 0:
-        factor = 1.0 + (whites / 100.0) * 0.4
-        bgr = bgr * (1 - white_mask) + (bgr * factor) * white_mask
-
-    if blacks != 0:
-        offset = (blacks / 100.0) * 0.15
-        bgr = bgr * (1 - black_mask) + np.clip(bgr + offset, 0, 1) * black_mask
-
-    # 6. Exposure (Độ sáng)
+    # 2. Xử lý Exposure & Contrast
+    # Exposure
     if exposure != 0:
-        bgr = bgr * (2.0 ** exposure)
+        factor = 2.0 ** exposure
+        img = np.clip(img * factor, 0, 255).astype(np.uint8)
 
-    # 7. Contrast (Độ tương phản)
+    # Contrast
     if contrast != 0:
-        factor = (259.0 * (contrast + 255.0)) / (255.0 * (259.0 - contrast))
-        bgr = 0.5 + factor * (bgr - 0.5)
+        f = 131 * (contrast + 127) / (127 * (131 - contrast))
+        img = np.clip(128 + f * (img.astype(np.float32) - 128), 0, 255).astype(np.uint8)
 
-    # 8. Clarity (Midtone Contrast)
-    if clarity != 0:
-        blur = cv2.GaussianBlur(bgr, (0, 0), 3.0)
-        c_factor = (clarity / 100.0) * 0.5
-        bgr = bgr + (bgr - blur) * c_factor
-
-    # 9. Dehaze (Khử sương mờ)
-    if dehaze > 0:
-        d_factor = 1.0 + (dehaze / 100.0) * 0.3
-        bgr = (bgr - 0.1 * (dehaze / 100.0)) * d_factor
-
-    # 10. Sharpening (Unsharp Masking)
-    if sharpening > 0:
-        radius = max(0.5, float(sharpen_radius))
-        blurred = cv2.GaussianBlur(bgr, (0, 0), radius)
-        s_amount = (sharpening / 100.0) * 1.5
-        bgr = cv2.addWeighted(bgr, 1.0 + s_amount, blurred, -s_amount, 0)
-
-    bgr = np.clip(bgr, 0, 1) * 255.0
-    result = bgr.astype(np.uint8)
-
-    if has_alpha:
-        result = cv2.merge([result[:, :, 0], result[:, :, 1], result[:, :, 2], alpha])
-
-    # Chuyển sang PIL để xử lý Saturation & Vibrance
-    pil_img = Image.fromarray(cv2.cvtColor(result, cv2.COLOR_BGR2RGB if not has_alpha else cv2.COLOR_BGRA2RGBA))
-
+    # 3. Xử lý Saturation (Độ bão hòa màu) - Dùng HSV để giữ đúng hệ màu
     if saturation != 0:
-        enhancer_sat = ImageEnhance.Color(pil_img)
-        pil_img = enhancer_sat.enhance(1.0 + (saturation / 100.0))
+        hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
+        sat_factor = 1.0 + (saturation / 100.0)
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_factor, 0, 255)
+        img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
 
-    if vibrance != 0:
-        enhancer_vib = ImageEnhance.Color(pil_img)
-        pil_img = enhancer_vib.enhance(1.0 + (vibrance / 100.0))
+    # 4. Xử lý Sharpening (Làm nét)
+    if sharpening > 0:
+        kernel_strength = sharpening / 100.0
+        gaussian = cv2.GaussianBlur(img, (0, 0), 3)
+        img = cv2.addWeighted(img, 1.0 + kernel_strength, gaussian, -kernel_strength, 0)
 
-    pil_img.save(output_path)
+    # 5. Lưu kết quả ra file chuẩn RGB
+    result_pil = Image.fromarray(img)
+    result_pil.save(output_path, format="PNG")
 
 
 # -----------------------------------------------------------------
