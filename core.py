@@ -18,7 +18,6 @@ FONT_MAP = {
 }
 
 def load_selected_font(font_name, font_size):
-    """Load font được chọn từ hệ thống hoặc fallback về font mặc định có hỗ trợ scale size."""
     paths = FONT_MAP.get(font_name, FONT_MAP["Arial"])
     for path in paths:
         try:
@@ -48,17 +47,17 @@ def adjust_image_advanced(
     img_pil = Image.open(input_path).convert("RGB")
     img = np.array(img_pil)
 
-    # A. Exposure (Phơi sáng)
+    # A. Exposure
     if exposure != 0:
         factor = 2.0 ** exposure
         img = np.clip(img * factor, 0, 255).astype(np.uint8)
 
-    # B. Contrast (Độ tương phản)
+    # B. Contrast
     if contrast != 0:
         f = 131 * (contrast + 127) / (127 * (131 - contrast))
         img = np.clip(128 + f * (img.astype(np.float32) - 128), 0, 255).astype(np.uint8)
 
-    # C. Shadows & Highlights (Tăng sáng vùng tối & hạ dịu vùng chói)
+    # C. Shadows & Highlights
     if shadows != 0 or highlights != 0:
         lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
         l, a, b_chan = cv2.split(lab)
@@ -75,25 +74,42 @@ def adjust_image_advanced(
         lab = cv2.merge([l_final, a, b_chan])
         img = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
 
-    # D. Saturation (Độ bão hòa màu sắc - Giữ rực rỡ chuẩn HSV)
+    # D. Saturation
     if saturation != 0:
         hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
         sat_factor = 1.0 + (saturation / 100.0)
         hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_factor, 0, 255)
         img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
 
-    # E. Sharpening & Clarity (Độ nét & Trong trẻo)
+    # E. Sharpening & Clarity
     if sharpening > 0:
         strength = sharpening / 100.0
         blurred = cv2.GaussianBlur(img, (0, 0), 3)
         img = cv2.addWeighted(img, 1.0 + strength, blurred, -strength, 0)
 
-    # Lưu kết quả
     res_pil = Image.fromarray(img)
     res_pil.save(output_path, format="PNG")
 
 # -------------------------------------------------------------------
-# 3. CÁC TÍNH NĂNG PHỤ TRỢ (BỘ LỌC, TEXT, RESIZE, XOAY, TÁCH NỀN)
+# 3. HÀM CẮT ÁNH (CROP IMAGE)
+# -------------------------------------------------------------------
+def crop_image(input_path, output_path, crop_box):
+    """
+    crop_box: tuple (left, upper, right, lower)
+    """
+    with Image.open(input_path) as img:
+        # Đảm bảo tọa độ nằm trong phạm vi ảnh
+        w, h = img.size
+        left = max(0, min(crop_box[0], w - 1))
+        upper = max(0, min(crop_box[1], h - 1))
+        right = max(left + 1, min(crop_box[2], w))
+        lower = max(upper + 1, min(crop_box[3], h))
+
+        cropped = img.crop((left, upper, right, lower))
+        cropped.save(output_path, format="PNG")
+
+# -------------------------------------------------------------------
+# 4. CÁC TÍNH NĂNG PHỤ TRỢ KHÁC
 # -------------------------------------------------------------------
 def add_text_to_image(input_path, output_path, text, position=(50, 50), font_name="Arial", font_size=40, color=(255, 0, 0)):
     with Image.open(input_path) as img:
