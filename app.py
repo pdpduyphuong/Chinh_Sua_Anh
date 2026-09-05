@@ -35,30 +35,37 @@ def analyze_image_ai(image_path):
     img_lab = cv2.cvtColor(img_np, cv2.COLOR_RGB2LAB)
     l_channel, _, _ = cv2.split(img_lab)
 
-    # 1. Quy đổi độ sáng gốc từ 0-255 sang thang 0 - 100%
-    raw_brightness_255 = np.mean(l_channel)
-    brightness_pct = round((raw_brightness_255 / 255.0) * 100, 1)
+    # Quy đổi độ sáng gốc ra %
+    raw_brightness = np.mean(l_channel)
+    brightness_pct = round((raw_brightness / 255.0) * 100, 1)
 
-    p10 = np.percentile(l_channel, 10) / 2.55 # Quy đổi ra %
+    p10 = np.percentile(l_channel, 10) / 2.55
     p90 = np.percentile(l_channel, 90) / 2.55
     std_contrast = round(float(np.std(l_channel)), 1)
 
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     laplacian_var = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 1)
 
-    # 2. Tính toán tham số gợi ý
-    # Mục tiêu đưa độ sáng về khoảng 55% - 60% (Sáng đẹp, trong trẻo)
+    # --- ĐƯA VỀ THANG QUY CHIẾU CỦA SLIDER ---
+    # Exposure: bước 0.1 (-2.0 đến 2.0)
     target_pct = 58.0
     suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
     suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
 
-    suggested_shadows = int(np.clip((25 - p10) * 1.5, 0, 50)) if p10 < 25 else 0
-    suggested_highlights = -15 if p90 > 75 else 0
-    suggested_contrast = 15 if std_contrast < 50 else 5
-    suggested_clarity = 20
-    suggested_dehaze = 10
-    suggested_saturation = 10
+    # Shadows (-100 đến 100)
+    suggested_shadows = int(np.clip((25 - p10) * 1.2, 0, 50)) if p10 < 25 else 0
 
+    # Highlights (-100 đến 100)
+    suggested_highlights = -15 if p90 > 75 else 0
+
+    # Contrast (-100 đến 100)
+    suggested_contrast = 15 if std_contrast < 50 else 5
+
+    # Clarity (-100 đến 100) & Dehaze (0 đến 100)
+    suggested_clarity = 15
+    suggested_dehaze = 10
+
+    # Sharpening (0 đến 100)
     if laplacian_var < 100:
         suggested_sharpening = 40
     elif laplacian_var < 300:
@@ -66,8 +73,11 @@ def analyze_image_ai(image_path):
     else:
         suggested_sharpening = 15
 
+    # Saturation (-100 đến 100)
+    suggested_saturation = 10
+
     return {
-        "brightness_pct": brightness_pct, # % độ sáng
+        "brightness_pct": brightness_pct,
         "std_contrast": std_contrast,
         "sharpness": laplacian_var,
         "exposure": suggested_exposure,
@@ -148,18 +158,19 @@ if uploaded_file is not None:
             with col_ai2:
                 if st.session_state["ai_analysis"]:
                     ai_res = st.session_state["ai_analysis"]
-                    # Đã đổi hiển thị sang % độ sáng thay vì /255
                     st.write(
                         f"📊 **Chỉ số gốc:** Độ sáng `{ai_res['brightness_pct']}%` | "
                         f"Tương phản `{ai_res['std_contrast']}` | "
                         f"Độ nét `{ai_res['sharpness']}`"
                     )
+                    # Hiển thị chính xác từng giá trị tương ứng với Slider
                     st.write(
                         f"💡 **AI đề xuất:** "
                         f"Exp `{ai_res['exposure']:+.1f}` | "
                         f"Contrast `{ai_res['contrast']:+d}` | "
                         f"Shadows `{ai_res['shadows']:+d}` | "
-                        f"Sharp `{ai_res['sharpening']}`"
+                        f"Clarity `{ai_res['clarity']:+d}` | "
+                        f"Sharpening `{ai_res['sharpening']}`"
                     )
                     st.button("👉 Áp dụng thông số AI vào Slider", on_click=apply_ai_suggestions)
 
