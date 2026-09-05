@@ -353,17 +353,26 @@ def ai_analyze_image(image_np):
 
 
 # --- THÊM TEXT VÀO ẢNH ---
-def add_text_to_image(input_path, output_path, text, position=(50, 50), font_size=40, color=(255, 255, 255)):
+def add_text_to_image(input_path, output_path, text, position=(50, 50), font_size=40, color=(255, 255, 255),
+                      stroke_color=(0, 0, 0)):
     img = Image.open(input_path).convert("RGB")
     draw = ImageDraw.Draw(img)
 
     try:
-        # Load font mặc định của hệ thống hoặc arial
         font = ImageFont.truetype("arial.ttf", font_size)
     except IOError:
         font = ImageFont.load_default()
 
-    draw.text(position, text, fill=color, font=font)
+    # Chèn chữ có viền đen/trắng xung quanh để nổi bật trên mọi nền
+    stroke_width = max(1, font_size // 15)
+    draw.text(
+        position,
+        text,
+        fill=color,
+        font=font,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_color
+    )
     img.save(output_path, format="PNG")
 
 

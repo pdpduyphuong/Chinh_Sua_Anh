@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import streamlit as st
 from PIL import Image
-
+from streamlit_drawable_canvas import st_canvas
 # Import đầy đủ các hàm xử lý từ core.py
 from core import (
     adjust_image_advanced,
@@ -201,25 +201,74 @@ if uploaded_file is not None:
             apply_filter(INPUT_PATH, OUTPUT_PATH, filter_option)
             st.session_state["processed_img"] = OUTPUT_PATH
 
-    # --- TAB 3: THÊM TEXT ---
-    with tab3:
-        st.markdown("### Chèn Chữ Vào Ảnh")
-        input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            pos_x = st.number_input("Tọa độ X (px)", value=50)
-            pos_y = st.number_input("Tọa độ Y (px)", value=50)
-        with col_t2:
-            font_size = st.slider("Kích thước chữ", 10, 150, 40)
-            text_color = st.color_picker("Chọn màu chữ", "#FFFFFF")
+        # --- TAB 3: THÊM TEXT TƯƠNG TÁC (CLICK CHỌN VỊ TRÍ) ---
+        with tab3:
+            st.markdown("### 🎯 Chèn Chữ Trực Quan (Click Chọn Vị Trí Trên Ảnh)")
 
-        # Chuyển đổi mã màu hex sang RGB tuple
-        hex_color = text_color.lstrip('#')
-        rgb_color = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            # 1. Nhập thông số chữ
+            col_txt1, col_txt2 = st.columns(2)
+            with col_txt1:
+                input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
+                font_size = st.slider("Kích thước chữ (px)", 12, 120, 36)
+            with col_txt2:
+                text_color = st.color_picker("Màu chữ", "#FFFFFF")
+                stroke_color = st.color_picker("Màu viền chữ", "#000000")
 
-        if st.button("Thêm Chữ Vào Ảnh"):
-            add_text_to_image(INPUT_PATH, OUTPUT_PATH, input_text, position=(pos_x, pos_y), font_size=font_size, color=rgb_color)
-            st.session_state["processed_img"] = OUTPUT_PATH
+            # Quy đổi mã Hex sang RGB
+            hex_c = text_color.lstrip('#')
+            rgb_color = tuple(int(hex_c[i:i + 2], 16) for i in (0, 2, 4))
+
+            hex_s = stroke_color.lstrip('#')
+            rgb_stroke = tuple(int(hex_s[i:i + 2], 16) for i in (0, 2, 4))
+
+            st.info("👉 **Hướng dẫn:** Click chuột trực tiếp vào vị trí trên bức ảnh bên dưới để đặt tâm điểm chèn chữ.")
+
+            # 2. Khung ảnh Canvas cho phép Click chọn vị trí
+            canvas_bg = Image.open(INPUT_PATH)
+            bg_width, bg_height = canvas_bg.size
+
+            # Giới hạn chiều rộng khung xem canvas để không tràn màn hình
+            disp_width = min(bg_width, 700)
+            disp_height = int(bg_height * (disp_width / bg_width))
+
+            canvas_result = st_canvas(
+                fill_color="rgba(255, 165, 0, 0.3)",
+                stroke_width=2,
+                background_image=canvas_bg,
+                update_streamlit=True,
+                height=disp_height,
+                width=disp_width,
+                drawing_mode="point",  # Chế độ chấm điểm
+                key="canvas_text_picker",
+            )
+
+            # 3. Tính toán tọa độ thực tế từ điểm Click
+            pos_x, pos_y = 50, 50  # Vị trí mặc định
+            if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
+                # Lấy điểm click mới nhất
+                last_point = canvas_result.json_data["objects"][-1]
+                click_x = last_point["left"]
+                click_y = last_point["top"]
+
+                # Quy đổi tọa độ từ màn hình hiển thị về kích thước ảnh gốc
+                pos_x = int(click_x * (bg_width / disp_width))
+                pos_y = int(click_y * (bg_height / disp_height))
+
+                st.success(f"📍 Đã chọn vị trí: X = `{pos_x}px`, Y = `{pos_y}px`")
+
+            # 4. Nút thực thi chèn chữ
+            if st.button("✨ Áp Dụng Thêm Chữ"):
+                add_text_to_image(
+                    INPUT_PATH,
+                    OUTPUT_PATH,
+                    text=input_text,
+                    position=(pos_x, pos_y),
+                    font_size=font_size,
+                    color=rgb_color,
+                    stroke_color=rgb_stroke
+                )
+                st.session_state["processed_img"] = OUTPUT_PATH
+                st.rerun()
 
     # --- TAB 4: RESIZE & UPSCALE ---
     with tab4:
