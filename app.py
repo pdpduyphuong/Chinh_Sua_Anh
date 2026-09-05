@@ -15,7 +15,7 @@ import numpy as np
 import streamlit as st
 
 # -------------------------------------------------------------
-# CHECK DEPENDENCIES AN TOÀN (PREVENT FATAL CRASH)
+# CHECK DEPENDENCIES AN TOÀN
 # -------------------------------------------------------------
 try:
     from streamlit_drawable_canvas import st_canvas
