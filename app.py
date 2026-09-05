@@ -13,7 +13,6 @@ if str(CURRENT_DIR) not in sys.path:
 import numpy as np
 import streamlit as st
 
-# Check dependencies
 try:
     from streamlit_drawable_canvas import st_canvas
     HAS_CANVAS = True
@@ -137,10 +136,9 @@ if uploaded_file is not None:
         "🔄 Xoay, Lật & Cắt Ảnh"
     ])
 
-    # --- TAB 1: CHỈNH SÁNG & MÀU ---
+    # TAB 1
     with tab1:
         st.markdown("### Chỉnh sửa thông số ảnh")
-
         with st.expander("🔍 **Phân tích thông số ảnh tự động**", expanded=True):
             col_ai1, col_ai2 = st.columns([1, 2])
             with col_ai1:
@@ -164,7 +162,6 @@ if uploaded_file is not None:
                     st.button("👉 Áp dụng đề xuất vào Slider", on_click=apply_ai_suggestions)
 
         st.markdown("---")
-
         c1, c2 = st.columns(2)
         with c1:
             st.slider(
@@ -212,7 +209,7 @@ if uploaded_file is not None:
                 except Exception as err:
                     st.error(f"❌ Lỗi khi xử lý ảnh: {err}")
 
-    # --- TAB 2: BỘ LỌC MÀU ---
+    # TAB 2
     with tab2:
         st.markdown("### Chọn Bộ Lọc Nghệ Thuật")
         filter_options = [
@@ -250,7 +247,7 @@ if uploaded_file is not None:
                     st.success("Đã khôi phục về ảnh ban đầu!")
                     st.rerun()
 
-    # --- TAB 3: THÊM TEXT ---
+    # TAB 3
     with tab3:
         st.markdown("### 🎯 Chèn Chữ Trực Quan")
         col_txt1, col_txt2 = st.columns(2)
@@ -314,7 +311,7 @@ if uploaded_file is not None:
                 st.success("Đã thêm chữ thành công!")
                 st.rerun()
 
-    # --- TAB 4: RESIZE & PHÓNG TO ---
+    # TAB 4
     with tab4:
         st.markdown("### Phóng to / Thay đổi kích thước")
         resize_type = st.radio("Phương pháp:", ["Resize Chuẩn", "Phóng To Chất Lượng Cao (Lanczos Upscale)"])
@@ -333,7 +330,7 @@ if uploaded_file is not None:
                     update_input_image_and_refresh()
                     st.rerun()
 
-    # --- TAB 5: TÁCH NỀN AI (U2NET) ---
+    # TAB 5
     with tab5:
         st.markdown("### 🤖 Tách Nền Tự Động Bằng AI (U2Net Engine)")
         st.caption("Sử dụng mạng Nơ-ron U2Net trực tiếp qua ONNX Runtime thuần. Không phụ thuộc thư viện rembg/OpenCV heavy.")
@@ -349,7 +346,7 @@ if uploaded_file is not None:
             selected_model = "u2netp" if "u2netp" in model_choice else "u2net"
 
             if st.button("⚡ Thực Hiện Tách Nền AI (U2Net)"):
-                with st.spinner(f"Đang chạy mô hình {selected_model}... Lần đầu chạy có thể mất vài giây để tải weights."):
+                with st.spinner(f"Đang chạy mô hình {selected_model}..."):
                     try:
                         remove_background_u2net(INPUT_PATH, OUTPUT_PATH, model_type=selected_model)
                         update_input_image_and_refresh()
@@ -380,7 +377,7 @@ if uploaded_file is not None:
                     except Exception as e:
                         st.error(f"Lỗi khi xóa nền: {e}")
 
-    # --- TAB 6: XOAY, LẬT & CẮT ÁNH ---
+    # TAB 6
     with tab6:
         st.markdown("### 1. Xoay và lật hướng ảnh")
         c_rot1, c_rot2 = st.columns([3, 1])
@@ -481,7 +478,7 @@ if uploaded_file is not None:
                 st.success("Đã cắt ảnh thành công!")
                 st.rerun()
 
-    # --- KẾT QUẢ HIỂN THỊ ---
+    # KẾT QUẢ
     with col2:
         st.subheader("Kết Quả")
         if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):

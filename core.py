@@ -5,7 +5,6 @@ import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
 from u2net_engine import U2NetInference
 
-# Cấu hình Singleton cho U2Net Inference Engine
 _U2NET_ENGINE = None
 
 
@@ -17,9 +16,6 @@ def get_u2net_engine(model_name: str = "u2netp") -> U2NetInference:
 
 
 def remove_background_u2net(input_path: str, output_path: str, model_type: str = "u2netp"):
-    """
-    Tách nền ảnh tự động bằng AI U2Net / U2NetP.
-    """
     img = Image.open(input_path)
     engine = get_u2net_engine(model_name=model_type)
     result_img = engine.remove_background(img)
@@ -32,9 +28,6 @@ def remove_background_by_color(
         target_color_hex: str = "#FFFFFF",
         tolerance: int = 30
 ):
-    """
-    Tách nền thủ công bằng chọn màu sắc (Chroma Keying).
-    """
     img = Image.open(input_path).convert("RGBA")
     data = np.array(img, dtype=np.int16)
 
@@ -56,7 +49,6 @@ def remove_background_by_color(
 
 
 def analyze_image_fast(input_path: str) -> dict:
-    """Phân tích các chỉ số ảnh sử dụng NumPy thuần."""
     pil_img = Image.open(input_path).convert("RGB")
     img_np = np.array(pil_img, dtype=np.float32)
 
