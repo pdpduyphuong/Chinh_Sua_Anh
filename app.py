@@ -238,20 +238,34 @@ if uploaded_file is not None:
 
         if st.button("Áp dụng ánh sáng & màu sắc"):
             with st.spinner("Đang xử lý ảnh..."):
-                adjust_image_advanced(
-                    INPUT_PATH,
-                    OUTPUT_PATH,
-                    exposure=st.session_state["exposure"],
-                    contrast=st.session_state["contrast"],
-                    highlights=st.session_state["highlights"],
-                    shadows=st.session_state["shadows"],
-                    saturation=st.session_state["saturation"],
-                    clarity=st.session_state["clarity"],
-                    dehaze=st.session_state["dehaze"],
-                    sharpening=st.session_state["sharpening"]
-                )
-                update_input_image_and_refresh()
-                st.rerun()
+                try:
+                    # Ép kiểu tường minh trước khi truyền vào hàm nghiệp vụ
+                    exp_val = float(st.session_state.get("exposure", 0.0))
+                    cnt_val = float(st.session_state.get("contrast", 0))
+                    hl_val = float(st.session_state.get("highlights", 0))
+                    sh_val = float(st.session_state.get("shadows", 0))
+                    sat_val = float(st.session_state.get("saturation", 0))
+                    clr_val = float(st.session_state.get("clarity", 0))
+                    dhz_val = float(st.session_state.get("dehaze", 0))
+                    shp_val = float(st.session_state.get("sharpening", 0))
+
+                    adjust_image_advanced(
+                        INPUT_PATH,
+                        OUTPUT_PATH,
+                        exposure=exp_val,
+                        contrast=cnt_val,
+                        highlights=hl_val,
+                        shadows=sh_val,
+                        saturation=sat_val,
+                        clarity=clr_val,
+                        dehaze=dhz_val,
+                        sharpening=shp_val
+                    )
+                    update_input_image_and_refresh()
+                    st.success("Đã áp dụng thông số thành công!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"❌ Lỗi khi xử lý ảnh: {err}")
 
     # --- TAB 2: BỘ LỌC MÀU ---
     with tab2:
