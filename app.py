@@ -386,58 +386,63 @@ if uploaded_file is not None:
                     crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
                     st.session_state["processed_img"] = OUTPUT_PATH
                     st.rerun()
-
-            # B. CẮT BẰNG KÉO THẢ TRÊN CANVAS
+            # B. CẮT BẰNG KÉO THẢ TRÊN CANVAS (KHẮC PHỤC HOÀN TOÀN LỖI KHÔNG NHẬN KHUNG)
             elif crop_mode == "Kéo thả trực quan (Canvas Drag)":
-                st.info(
-                    "👉 **Hướng dẫn:** Đè giữ chuột và kéo thành một **hình chữ nhật** trên ảnh bên dưới để khoanh vùng cắt.")
+                    st.info(
+                        "👉 **Hướng dẫn:** Đè giữ chuột và kéo thành một **hình chữ nhật** trên ảnh bên dưới để khoanh vùng cắt.")
 
-                disp_w = min(orig_w, 700)
-                disp_h = int(orig_h * (disp_w / orig_w))
+                    disp_w = min(orig_w, 700)
+                    disp_h = int(orig_h * (disp_w / orig_w))
 
-                crop_canvas = st_canvas(
-                    fill_color="rgba(255, 0, 0, 0.2)",
-                    stroke_color="#FF0000",
-                    stroke_width=2,
-                    background_image=curr_img,
-                    update_streamlit=True,
-                    height=disp_h,
-                    width=disp_w,
-                    drawing_mode="rect",
-                    key="crop_canvas_drag",
-                )
+                    # Render canvas với key cố định
+                    crop_canvas = st_canvas(
+                        fill_color="rgba(255, 0, 0, 0.2)",
+                        stroke_color="#FF0000",
+                        stroke_width=2,
+                        background_image=curr_img,
+                        update_streamlit=True,
+                        height=disp_h,
+                        width=disp_w,
+                        drawing_mode="rect",
+                        key="crop_canvas_widget",
+                    )
 
-                if "last_crop_coords" not in st.session_state:
-                    st.session_state["last_crop_coords"] = None
+                    # Lấy tọa độ trực tiếp từ dữ liệu Canvas nếu có
+                    current_coords = None
+                    if crop_canvas.json_data is not None:
+                        objects = crop_canvas.json_data.get("objects", [])
+                        if len(objects) > 0:
+                            last_obj = objects[-1]
+                            if last_obj.get("type") == "rect":
+                                scale_x = orig_w / disp_w
+                                scale_y = orig_h / disp_h
 
-                if crop_canvas.json_data is not None and len(crop_canvas.json_data["objects"]) > 0:
-                    last_rect = crop_canvas.json_data["objects"][-1]
-                    if last_rect.get("type") == "rect":
-                        scale_x = orig_w / disp_w
-                        scale_y = orig_h / disp_h
+                                c_left = int(last_obj["left"] * scale_x)
+                                c_top = int(last_obj["top"] * scale_y)
+                                c_w = int(last_obj["width"] * scale_x)
+                                c_h = int(last_obj["height"] * scale_y)
 
-                        c_left = int(last_rect["left"] * scale_x)
-                        c_top = int(last_rect["top"] * scale_y)
-                        c_w = int(last_rect["width"] * scale_x)
-                        c_h = int(last_rect["height"] * scale_y)
+                                if c_w > 5 and c_h > 5:  # Tránh khung quá nhỏ do lỡ click chuột
+                                    current_coords = (c_left, c_top, c_left + c_w, c_top + c_h)
+                                    st.session_state["crop_coords_store"] = current_coords
 
-                        st.session_state["last_crop_coords"] = (c_left, c_top, c_left + c_w, c_top + c_h)
+                    # Lấy tọa độ từ store ra hiển thị & xử lý
+                    active_coords = st.session_state.get("crop_coords_store", current_coords)
 
-                coords = st.session_state["last_crop_coords"]
-                if coords:
-                    c_left, c_top, c_right, c_bottom = coords
-                    st.success(
-                        f"📍 Khung cắt đã chọn: X=`{c_left}`, Y=`{c_top}`, Rộng=`{c_right - c_left}px`, Cao=`{c_bottom - c_top}px`")
+                    if active_coords:
+                        x1, y1, x2, y2 = active_coords
+                        st.success(
+                            f"📍 Đã ghi nhận khung cắt: X=`{x1}`, Y=`{y1}`, Rộng=`{x2 - x1}px`, Cao=`{y2 - y1}px`")
 
-                if st.button("✂️ Cắt Vùng Đã Chọn"):
-                    saved_coords = st.session_state["last_crop_coords"]
-                    if saved_coords and (saved_coords[2] > saved_coords[0]) and (saved_coords[3] > saved_coords[1]):
-                        crop_image(INPUT_PATH, OUTPUT_PATH, saved_coords)
-                        st.session_state["processed_img"] = OUTPUT_PATH
-                        st.session_state["last_crop_coords"] = None
-                        st.rerun()
-                    else:
-                        st.warning("Vui lòng kéo chuột tạo khung chữ nhật trên ảnh trước!")
+                    if st.button("✂️ Cắt Vùng Đã Chọn"):
+                        target_box = st.session_state.get("crop_coords_store") or current_coords
+                        if target_box and (target_box[2] > target_box[0]) and (target_box[3] > target_box[1]):
+                            crop_image(INPUT_PATH, OUTPUT_PATH, target_box)
+                            st.session_state["processed_img"] = OUTPUT_PATH
+                            st.session_state["crop_coords_store"] = None  # Reset lại sau khi đã cắt xong
+                            st.rerun()
+                        else:
+                            st.warning("Vui lòng kéo chuột tạo khung chữ nhật trên ảnh trước!")
 
             # C. CẮT THEO TỌA ĐỘ / PIXEL TÙY CHỈNH
             else:
