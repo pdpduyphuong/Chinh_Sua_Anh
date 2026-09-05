@@ -1,4 +1,4 @@
-# app.py - PDP Photo Editor Web (Resilient Architecture)
+# app.py - PDP Photo Editor Web
 import os
 import sys
 import shutil
@@ -20,13 +20,13 @@ import streamlit as st
 try:
     from streamlit_drawable_canvas import st_canvas
     HAS_CANVAS = True
-except Exception as e:
+except Exception:
     HAS_CANVAS = False
 
 try:
     from streamlit_cropper import st_cropper
     HAS_CROPPER = True
-except Exception as e:
+except Exception:
     HAS_CROPPER = False
 
 try:
@@ -57,14 +57,13 @@ st.set_page_config(
 
 st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
 
-# Hiển thị cảnh báo nếu thiếu module mà không bị crash app
 if not HAS_CORE:
     st.error(f"❌ Không thể tải module core.py: {CORE_ERROR}")
     st.info("💡 Vui lòng kiểm tra lại cấu hình file core.py và requirements.txt.")
     st.stop()
 
 if not HAS_CROPPER:
-    st.warning("⚠️ Thư viện `streamlit-cropper` chưa khả dụng hoặc bị xung đột phiên bản. Chức năng Cắt ảnh sẽ chuyển sang chế độ tỉ lệ chuẩn dự phòng.")
+    st.warning("⚠️ Thư viện `streamlit-cropper` chưa khả dụng hoặc bị xung đột. Chức năng Cắt ảnh sẽ chuyển sang chế độ dự phòng.")
 
 TEMP_DIR = tempfile.gettempdir()
 INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
@@ -195,7 +194,7 @@ if uploaded_file is not None:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Ảnh Gốc / Hiện Tại")
-        st.image(image, use_container_width=True)
+        st.image(image, width="stretch")
 
     # -------------------------------------------------------------
     # CÁC TAB CHỨC NĂNG
@@ -389,7 +388,6 @@ if uploaded_file is not None:
                 pos_y = int(last_point["top"] * scale_ratio)
                 st.success(f"📍 Tọa độ chọn: X = `{pos_x}px`, Y = `{pos_y}px` | Kích thước font thực tế: `{actual_font_size}px`")
         else:
-            pos_x, pos_y = 50, 50
             st.info("Nhập tọa độ chữ thủ công:")
             pos_x = st.number_input("Tọa độ X", value=50)
             pos_y = st.number_input("Tọa độ Y", value=50)
@@ -498,7 +496,7 @@ if uploaded_file is not None:
             )
 
             st.write("🖼️ **Xem trước vùng cắt:**")
-            st.image(cropped_result, caption="Vùng ảnh đã chọn", use_container_width=False, width=300)
+            st.image(cropped_result, caption="Vùng ảnh đã chọn", width=300)
 
             if st.button("✂️ Áp Dụng Cắt Ảnh Vùng Chọn"):
                 cropped_result.save(OUTPUT_PATH)
@@ -539,7 +537,7 @@ if uploaded_file is not None:
             draw = ImageDraw.Draw(preview_img)
             draw.rectangle([left, top, right, bottom], outline="red", width=max(3, int(orig_w / 300)))
 
-            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", use_container_width=True)
+            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", width="stretch")
 
             if st.button("✂️ Áp Dụng Cắt Theo Tỉ Lệ"):
                 crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
@@ -552,7 +550,7 @@ if uploaded_file is not None:
         st.subheader("Kết Quả")
         if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):
             res_img = Image.open(st.session_state["processed_img"])
-            st.image(res_img, use_container_width=True)
+            st.image(res_img, width="stretch")
 
             with open(st.session_state["processed_img"], "rb") as file:
                 st.download_button(
