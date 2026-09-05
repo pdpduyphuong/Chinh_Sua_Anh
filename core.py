@@ -31,7 +31,7 @@ def load_selected_font(font_name, font_size):
         return ImageFont.load_default()
 
 # -------------------------------------------------------------------
-# 2. XỬ LÝ ÁNH SÁNG & MÀU SẮC NÂNG CAO (NÂNG TÔNG, RỰC RỠ, TRONG TRẺO)
+# 2. XỬ LÝ ÁNH SÁNG & MÀU SẮC NÂNG CAO
 # -------------------------------------------------------------------
 def adjust_image_advanced(
     input_path,

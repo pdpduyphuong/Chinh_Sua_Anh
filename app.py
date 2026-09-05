@@ -6,7 +6,6 @@ import streamlit as st
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 
-# Import toàn bộ hàm từ core.py
 from core import (
     adjust_image_advanced,
     rotate_or_flip_image,
@@ -25,7 +24,7 @@ INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
 OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
 
 # -------------------------------------------------------------------
-# HÀM PHÂN TÍCH AI (Đồng bộ 100% chỉ số với Slider)
+# PHÂN TÍCH AI ĐỒNG BỘ 100% VỚI THÔNG SỐ SLIDER
 # -------------------------------------------------------------------
 def analyze_image_ai(image_path):
     pil_img = Image.open(image_path).convert("RGB")
@@ -44,7 +43,6 @@ def analyze_image_ai(image_path):
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     laplacian_var = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 1)
 
-    # Đề xuất tham số
     target_pct = 58.0
     suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
     suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
@@ -78,31 +76,37 @@ def analyze_image_ai(image_path):
     }
 
 # -------------------------------------------------------------------
-# QUẢN LÝ TRẠNG THÁI (SESSION STATE)
+# QUẢN LÝ SESSION STATE - CƠ CHẾ ĐỒNG BỘ KÉP DÙNG CHO SLIDER
 # -------------------------------------------------------------------
-defaults = {
-    "exposure": 0.0, "contrast": 0, "highlights": 0, "shadows": 0,
-    "saturation": 0, "clarity": 0, "dehaze": 0, "sharpening": 0
+SLIDER_KEYS = {
+    "exposure": ("exp_s", 0.0),
+    "contrast": ("cnt_s", 0),
+    "highlights": ("hl_s", 0),
+    "shadows": ("sh_s", 0),
+    "saturation": ("sat_s", 0),
+    "clarity": ("clr_s", 0),
+    "dehaze": ("dhz_s", 0),
+    "sharpening": ("shp_s", 0),
 }
 
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+# Khởi tạo giá trị mặc định cho cả biến lưu dữ liệu và Key giao diện
+for param, (sk, default_val) in SLIDER_KEYS.items():
+    if param not in st.session_state:
+        st.session_state[param] = default_val
+    if sk not in st.session_state:
+        st.session_state[sk] = default_val
 
 if "ai_analysis" not in st.session_state:
     st.session_state["ai_analysis"] = None
 
+# HàmCallback gán trực tiếp dữ liệu từ AI xuống Slider Key
 def apply_ai_suggestions():
     if st.session_state["ai_analysis"]:
         ai = st.session_state["ai_analysis"]
-        st.session_state["exposure"] = float(ai["exposure"])
-        st.session_state["contrast"] = int(ai["contrast"])
-        st.session_state["highlights"] = int(ai["highlights"])
-        st.session_state["shadows"] = int(ai["shadows"])
-        st.session_state["saturation"] = int(ai["saturation"])
-        st.session_state["clarity"] = int(ai["clarity"])
-        st.session_state["dehaze"] = int(ai["dehaze"])
-        st.session_state["sharpening"] = int(ai["sharpening"])
+        for param, (sk, _) in SLIDER_KEYS.items():
+            val = ai[param]
+            st.session_state[param] = val
+            st.session_state[sk] = val
 
 # Sidebar: Upload
 st.sidebar.header("📂 Tải Ảnh Lên")
@@ -158,15 +162,39 @@ if uploaded_file is not None:
 
         c1, c2 = st.columns(2)
         with c1:
-            exposure = st.slider("Độ sáng (Exposure)", -2.0, 2.0, value=float(st.session_state["exposure"]), step=0.1, key="exp_s", on_change=lambda: st.session_state.update({"exposure": st.session_state.exp_s}))
-            contrast = st.slider("Độ tương phản (Contrast)", -100, 100, value=int(st.session_state["contrast"]), key="cnt_s", on_change=lambda: st.session_state.update({"contrast": st.session_state.cnt_s}))
-            highlights = st.slider("Vùng sáng (Highlights)", -100, 100, value=int(st.session_state["highlights"]), key="hl_s", on_change=lambda: st.session_state.update({"highlights": st.session_state.hl_s}))
-            shadows = st.slider("Vùng tối (Shadows)", -100, 100, value=int(st.session_state["shadows"]), key="sh_s", on_change=lambda: st.session_state.update({"shadows": st.session_state.sh_s}))
-            saturation = st.slider("Độ bão hòa (Saturation)", -100, 100, value=int(st.session_state["saturation"]), key="sat_s", on_change=lambda: st.session_state.update({"saturation": st.session_state.sat_s}))
+            st.slider(
+                "Độ sáng (Exposure)", -2.0, 2.0, step=0.1, key="exp_s",
+                on_change=lambda: st.session_state.update({"exposure": st.session_state.exp_s})
+            )
+            st.slider(
+                "Độ tương phản (Contrast)", -100, 100, key="cnt_s",
+                on_change=lambda: st.session_state.update({"contrast": st.session_state.cnt_s})
+            )
+            st.slider(
+                "Vùng sáng (Highlights)", -100, 100, key="hl_s",
+                on_change=lambda: st.session_state.update({"highlights": st.session_state.hl_s})
+            )
+            st.slider(
+                "Vùng tối (Shadows)", -100, 100, key="sh_s",
+                on_change=lambda: st.session_state.update({"shadows": st.session_state.sh_s})
+            )
+            st.slider(
+                "Độ bão hòa (Saturation)", -100, 100, key="sat_s",
+                on_change=lambda: st.session_state.update({"saturation": st.session_state.sat_s})
+            )
         with c2:
-            clarity = st.slider("Độ rõ nét (Clarity)", -100, 100, value=int(st.session_state["clarity"]), key="clr_s", on_change=lambda: st.session_state.update({"clarity": st.session_state.clr_s}))
-            dehaze = st.slider("Khử mờ (Dehaze)", 0, 100, value=int(st.session_state["dehaze"]), key="dhz_s", on_change=lambda: st.session_state.update({"dehaze": st.session_state.dhz_s}))
-            sharpening = st.slider("Sắc nét (Sharpening)", 0, 100, value=int(st.session_state["sharpening"]), key="shp_s", on_change=lambda: st.session_state.update({"sharpening": st.session_state.shp_s}))
+            st.slider(
+                "Độ rõ nét (Clarity)", -100, 100, key="clr_s",
+                on_change=lambda: st.session_state.update({"clarity": st.session_state.clr_s})
+            )
+            st.slider(
+                "Khử mờ (Dehaze)", 0, 100, key="dhz_s",
+                on_change=lambda: st.session_state.update({"dehaze": st.session_state.dhz_s})
+            )
+            st.slider(
+                "Sắc nét (Sharpening)", 0, 100, key="shp_s",
+                on_change=lambda: st.session_state.update({"sharpening": st.session_state.shp_s})
+            )
 
         if st.button("Áp dụng ánh sáng & màu sắc"):
             with st.spinner("Đang xử lý ảnh..."):
