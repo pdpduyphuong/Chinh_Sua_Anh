@@ -5,7 +5,8 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from streamlit_drawable_canvas import st_canvas
-# Import đầy đủ các hàm xử lý từ core.py
+
+# Import toàn bộ hàm từ core.py
 from core import (
     adjust_image_advanced,
     rotate_or_flip_image,
@@ -24,7 +25,7 @@ INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
 OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
 
 # -------------------------------------------------------------------
-# HÀM PHÂN TÍCH ẢNH BẰNG AI (Quy về chuẩn hệ quy chiếu với Slider)
+# HÀM PHÂN TÍCH AI (Đồng bộ 100% chỉ số với Slider)
 # -------------------------------------------------------------------
 def analyze_image_ai(image_path):
     pil_img = Image.open(image_path).convert("RGB")
@@ -43,7 +44,7 @@ def analyze_image_ai(image_path):
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     laplacian_var = round(float(cv2.Laplacian(gray, cv2.CV_64F).var()), 1)
 
-    # Tính toán chính xác 8 tham số khớp hệ quy chiếu với Slider
+    # Đề xuất tham số
     target_pct = 58.0
     suggested_exposure = round((target_pct - brightness_pct) / 25.0, 1)
     suggested_exposure = float(np.clip(suggested_exposure, -1.0, 1.5))
@@ -77,26 +78,20 @@ def analyze_image_ai(image_path):
     }
 
 # -------------------------------------------------------------------
-# KHỞI TẠO VÀ ĐỒNG BỘ NÚT BẤM AI VỚI CÁC SLIDER
+# QUẢN LÝ TRẠNG THÁI (SESSION STATE)
 # -------------------------------------------------------------------
-slider_keys = [
-    "exposure", "contrast", "highlights", "shadows",
-    "saturation", "clarity", "dehaze", "sharpening"
-]
-
 defaults = {
     "exposure": 0.0, "contrast": 0, "highlights": 0, "shadows": 0,
     "saturation": 0, "clarity": 0, "dehaze": 0, "sharpening": 0
 }
 
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 if "ai_analysis" not in st.session_state:
     st.session_state["ai_analysis"] = None
 
-# Hàm callback áp dụng TRỌN BỘ 8 THAM SỐ AI vào các slider
 def apply_ai_suggestions():
     if st.session_state["ai_analysis"]:
         ai = st.session_state["ai_analysis"]
@@ -109,7 +104,7 @@ def apply_ai_suggestions():
         st.session_state["dehaze"] = int(ai["dehaze"])
         st.session_state["sharpening"] = int(ai["sharpening"])
 
-# Sidebar: Tải ảnh
+# Sidebar: Upload
 st.sidebar.header("📂 Tải Ảnh Lên")
 uploaded_file = st.sidebar.file_uploader("Chọn tệp ảnh", type=["jpg", "jpeg", "png", "webp"])
 
@@ -122,7 +117,6 @@ if uploaded_file is not None:
         st.subheader("Ảnh Gốc")
         st.image(image, use_container_width=True)
 
-    # DANH SÁCH TAB ĐẦY ĐỦ
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "✨ Chỉnh Sáng & AI",
         "🎨 Bộ Lọc Màu",
@@ -164,15 +158,15 @@ if uploaded_file is not None:
 
         c1, c2 = st.columns(2)
         with c1:
-            exposure = st.slider("Độ sáng (Exposure)", -2.0, 2.0, value=float(st.session_state["exposure"]), step=0.1, key="exposure_slider", on_change=lambda: st.session_state.update({"exposure": st.session_state.exposure_slider}))
-            contrast = st.slider("Độ tương phản (Contrast)", -100, 100, value=int(st.session_state["contrast"]), key="contrast_slider", on_change=lambda: st.session_state.update({"contrast": st.session_state.contrast_slider}))
-            highlights = st.slider("Vùng sáng (Highlights)", -100, 100, value=int(st.session_state["highlights"]), key="highlights_slider", on_change=lambda: st.session_state.update({"highlights": st.session_state.highlights_slider}))
-            shadows = st.slider("Vùng tối (Shadows)", -100, 100, value=int(st.session_state["shadows"]), key="shadows_slider", on_change=lambda: st.session_state.update({"shadows": st.session_state.shadows_slider}))
-            saturation = st.slider("Độ bão hòa (Saturation)", -100, 100, value=int(st.session_state["saturation"]), key="saturation_slider", on_change=lambda: st.session_state.update({"saturation": st.session_state.saturation_slider}))
+            exposure = st.slider("Độ sáng (Exposure)", -2.0, 2.0, value=float(st.session_state["exposure"]), step=0.1, key="exp_s", on_change=lambda: st.session_state.update({"exposure": st.session_state.exp_s}))
+            contrast = st.slider("Độ tương phản (Contrast)", -100, 100, value=int(st.session_state["contrast"]), key="cnt_s", on_change=lambda: st.session_state.update({"contrast": st.session_state.cnt_s}))
+            highlights = st.slider("Vùng sáng (Highlights)", -100, 100, value=int(st.session_state["highlights"]), key="hl_s", on_change=lambda: st.session_state.update({"highlights": st.session_state.hl_s}))
+            shadows = st.slider("Vùng tối (Shadows)", -100, 100, value=int(st.session_state["shadows"]), key="sh_s", on_change=lambda: st.session_state.update({"shadows": st.session_state.sh_s}))
+            saturation = st.slider("Độ bão hòa (Saturation)", -100, 100, value=int(st.session_state["saturation"]), key="sat_s", on_change=lambda: st.session_state.update({"saturation": st.session_state.sat_s}))
         with c2:
-            clarity = st.slider("Độ rõ nét (Clarity)", -100, 100, value=int(st.session_state["clarity"]), key="clarity_slider", on_change=lambda: st.session_state.update({"clarity": st.session_state.clarity_slider}))
-            dehaze = st.slider("Khử mờ (Dehaze)", 0, 100, value=int(st.session_state["dehaze"]), key="dehaze_slider", on_change=lambda: st.session_state.update({"dehaze": st.session_state.dehaze_slider}))
-            sharpening = st.slider("Sắc nét (Sharpening)", 0, 100, value=int(st.session_state["sharpening"]), key="sharpening_slider", on_change=lambda: st.session_state.update({"sharpening": st.session_state.sharpening_slider}))
+            clarity = st.slider("Độ rõ nét (Clarity)", -100, 100, value=int(st.session_state["clarity"]), key="clr_s", on_change=lambda: st.session_state.update({"clarity": st.session_state.clr_s}))
+            dehaze = st.slider("Khử mờ (Dehaze)", 0, 100, value=int(st.session_state["dehaze"]), key="dhz_s", on_change=lambda: st.session_state.update({"dehaze": st.session_state.dhz_s}))
+            sharpening = st.slider("Sắc nét (Sharpening)", 0, 100, value=int(st.session_state["sharpening"]), key="shp_s", on_change=lambda: st.session_state.update({"sharpening": st.session_state.shp_s}))
 
         if st.button("Áp dụng ánh sáng & màu sắc"):
             with st.spinner("Đang xử lý ảnh..."):
@@ -189,6 +183,7 @@ if uploaded_file is not None:
                     sharpening=st.session_state["sharpening"]
                 )
                 st.session_state["processed_img"] = OUTPUT_PATH
+                st.rerun()
 
     # --- TAB 2: BỘ LỌC MÀU ---
     with tab2:
@@ -200,74 +195,69 @@ if uploaded_file is not None:
         if st.button("Áp dụng Bộ Lọc"):
             apply_filter(INPUT_PATH, OUTPUT_PATH, filter_option)
             st.session_state["processed_img"] = OUTPUT_PATH
+            st.rerun()
 
-            # --- TAB 3: THÊM TEXT TƯƠNG TÁC (CHỌN FONT CHỮ) ---
-            with tab3:
-                st.markdown("### 🎯 Chèn Chữ Trực Quan (Chọn Font & Click Vị Trí)")
+    # --- TAB 3: THÊM TEXT TƯƠNG TÁC ---
+    with tab3:
+        st.markdown("### 🎯 Chèn Chữ Trực Quan (Chọn Font & Click Vị Trí)")
+        col_txt1, col_txt2 = st.columns(2)
+        with col_txt1:
+            input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
+            font_size = st.slider("Kích thước chữ (px)", 12, 150, 40)
+        with col_txt2:
+            font_name = st.selectbox(
+                "Kiểu Font chữ:",
+                ["Arial", "Times New Roman", "Courier New", "Segoe UI", "Calibri", "Georgia", "Tahoma", "Verdana"]
+            )
+            text_color = st.color_picker("Màu chữ", "#FF0000")
 
-                # 1. Nhập thông số chữ
-                col_txt1, col_txt2 = st.columns(2)
-                with col_txt1:
-                    input_text = st.text_input("Nội dung chữ:", value="PDP Photo Editor")
-                    font_size = st.slider("Kích thước chữ (px)", 12, 150, 40)
-                with col_txt2:
-                    font_name = st.selectbox(
-                        "Kiểu Font chữ:",
-                        ["Arial", "Times New Roman", "Courier New", "Segoe UI", "Calibri", "Georgia", "Tahoma",
-                         "Verdana"]
-                    )
-                    text_color = st.color_picker("Màu chữ", "#FF0000")
+        hex_c = text_color.lstrip('#')
+        rgb_color = tuple(int(hex_c[i:i+2], 16) for i in (0, 2, 4))
 
-                # Quy đổi mã Hex sang RGB
-                hex_c = text_color.lstrip('#')
-                rgb_color = tuple(int(hex_c[i:i + 2], 16) for i in (0, 2, 4))
+        st.info("👉 **Hướng dẫn:** Click chuột trực tiếp vào vị trí trên bức ảnh bên dưới để chọn điểm chèn chữ.")
 
-                st.info(
-                    "👉 **Hướng dẫn:** Click chuột trực tiếp vào vị trí trên bức ảnh bên dưới để đặt tâm điểm chèn chữ.")
+        canvas_bg = Image.open(INPUT_PATH)
+        bg_width, bg_height = canvas_bg.size
 
-                # 2. Khung ảnh Canvas cho phép Click chọn vị trí
-                canvas_bg = Image.open(INPUT_PATH)
-                bg_width, bg_height = canvas_bg.size
+        disp_width = min(bg_width, 700)
+        disp_height = int(bg_height * (disp_width / bg_width))
 
-                disp_width = min(bg_width, 700)
-                disp_height = int(bg_height * (disp_width / bg_width))
+        canvas_result = st_canvas(
+            fill_color="rgba(255, 165, 0, 0.3)",
+            stroke_width=2,
+            background_image=canvas_bg,
+            update_streamlit=True,
+            height=disp_height,
+            width=disp_width,
+            drawing_mode="point",
+            key="canvas_text_picker",
+        )
 
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 165, 0, 0.3)",
-                    stroke_width=2,
-                    background_image=canvas_bg,
-                    update_streamlit=True,
-                    height=disp_height,
-                    width=disp_width,
-                    drawing_mode="point",
-                    key="canvas_text_picker",
+        pos_x, pos_y = 50, 50
+        if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
+            last_point = canvas_result.json_data["objects"][-1]
+            click_x = last_point["left"]
+            click_y = last_point["top"]
+
+            pos_x = int(click_x * (bg_width / disp_width))
+            pos_y = int(click_y * (bg_height / disp_height))
+            st.success(f"📍 Đã chọn vị trí: X = `{pos_x}px`, Y = `{pos_y}px`")
+
+        if st.button("✨ Áp Dụng Thêm Chữ"):
+            if not input_text.strip():
+                st.warning("Vui lòng nhập nội dung chữ!")
+            else:
+                add_text_to_image(
+                    INPUT_PATH,
+                    OUTPUT_PATH,
+                    text=input_text,
+                    position=(pos_x, pos_y),
+                    font_name=font_name,
+                    font_size=font_size,
+                    color=rgb_color
                 )
-
-                # 3. Tính toán tọa độ từ điểm Click
-                pos_x, pos_y = 50, 50
-                if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
-                    last_point = canvas_result.json_data["objects"][-1]
-                    click_x = last_point["left"]
-                    click_y = last_point["top"]
-
-                    pos_x = int(click_x * (bg_width / disp_width))
-                    pos_y = int(click_y * (bg_height / disp_height))
-
-                    st.success(f"📍 Đã chọn vị trí: X = `{pos_x}px`, Y = `{pos_y}px`")
-
-                # 4. Nút thực thi chèn chữ
-                if st.button("✨ Áp Dụng Thêm Chữ"):
-                    add_text_to_image(
-                        INPUT_PATH,
-                        OUTPUT_PATH,
-                        text=input_text,
-                        position=(pos_x, pos_y),
-                        font_name=font_name,
-                        font_size=font_size,
-                        color=rgb_color
-                    )
-                    st.session_state["processed_img"] = OUTPUT_PATH
-                    st.rerun()
+                st.session_state["processed_img"] = OUTPUT_PATH
+                st.rerun()
 
     # --- TAB 4: RESIZE & UPSCALE ---
     with tab4:
@@ -277,14 +267,16 @@ if uploaded_file is not None:
             w = st.number_input("Chiều rộng (px)", value=image.width)
             h = st.number_input("Chiều cao (px)", value=image.height)
             if st.button("Thực hiện Resize"):
-                resize_standard(INPUT_PATH, OUTPUT_PATH, width=w, height=h)
+                resize_standard(INPUT_PATH, OUTPUT_PATH, width=int(w), height=int(h))
                 st.session_state["processed_img"] = OUTPUT_PATH
+                st.rerun()
         else:
             scale = st.selectbox("Tỉ lệ phóng to:", [2, 4])
             if st.button("Phóng to bằng AI"):
                 with st.spinner("Đang nâng cấp chất lượng..."):
                     resize_ai_upscale(INPUT_PATH, OUTPUT_PATH, scale_factor=scale)
                     st.session_state["processed_img"] = OUTPUT_PATH
+                    st.rerun()
 
     # --- TAB 5: TÁCH NỀN AI ---
     with tab5:
@@ -295,8 +287,9 @@ if uploaded_file is not None:
                     remove_background_ai(INPUT_PATH, OUTPUT_PATH)
                     st.session_state["processed_img"] = OUTPUT_PATH
                     st.success("Tách nền thành công!")
+                    st.rerun()
                 except Exception as e:
-                    st.error(f"Lỗi: {e}")
+                    st.error(f"Lỗi tách nền: {e}")
 
     # --- TAB 6: XOAY & LẬT ---
     with tab6:
@@ -311,13 +304,14 @@ if uploaded_file is not None:
         if st.button("Thực hiện Xoay/Lật"):
             rotate_or_flip_image(INPUT_PATH, OUTPUT_PATH, action=action[1])
             st.session_state["processed_img"] = OUTPUT_PATH
+            st.rerun()
 
-    # Hiển thị Kết Quả
+    # --- HIỂN THỊ KẾT QUẢ KHI XỬ LÝ XONG ---
     with col2:
         st.subheader("Kết Quả")
         if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):
-            result_img = Image.open(st.session_state["processed_img"])
-            st.image(result_img, use_container_width=True)
+            res_img = Image.open(st.session_state["processed_img"])
+            st.image(res_img, use_container_width=True)
 
             with open(st.session_state["processed_img"], "rb") as file:
                 st.download_button(
