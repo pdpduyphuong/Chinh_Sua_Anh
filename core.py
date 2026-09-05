@@ -350,3 +350,51 @@ def ai_analyze_image(image_np):
         "suggested_brightness": suggested_brightness,
         "suggested_contrast": suggested_contrast
     }
+
+
+# --- THÊM TEXT VÀO ẢNH ---
+def add_text_to_image(input_path, output_path, text, position=(50, 50), font_size=40, color=(255, 255, 255)):
+    img = Image.open(input_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+
+    try:
+        # Load font mặc định của hệ thống hoặc arial
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+
+    draw.text(position, text, fill=color, font=font)
+    img.save(output_path, format="PNG")
+
+
+# --- ÁP DỤNG BỘ LỌC MÀU (FILTERS) ---
+def apply_filter(input_path, output_path, filter_type):
+    img = cv2.imread(input_path)
+    if img is None:
+        return
+
+    if filter_type == "Trắng Đen (Grayscale)":
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        result = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    elif filter_type == "Cổ Điển (Sepia)":
+        kernel = np.array([
+            [0.272, 0.534, 0.131],
+            [0.349, 0.686, 0.168],
+            [0.393, 0.769, 0.189]
+        ])
+        result = cv2.transform(img, kernel)
+        result = np.clip(result, 0, 255).astype(np.uint8)
+    elif filter_type == "Rực Rỡ (Vintage/Warm)":
+        # Tăng sắc ấm bằng kênh Red/Yellow
+        b, g, r = cv2.split(img)
+        r = cv2.add(r, 20)
+        g = cv2.add(g, 10)
+        result = cv2.merge([b, g, r])
+    elif filter_type == "Lạnh (Cool Tone)":
+        b, g, r = cv2.split(img)
+        b = cv2.add(b, 25)
+        result = cv2.merge([b, g, r])
+    else:
+        result = img
+
+    cv2.imwrite(output_path, result)
