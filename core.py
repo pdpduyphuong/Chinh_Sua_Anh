@@ -3,7 +3,8 @@ import os
 import sys
 from pathlib import Path
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageEnhance, ImageFilter,ImageDraw, ImageFont
+
 
 # --- KIỂM TRA & IMPORT NĂNG ĐỘNG DÀNH CHO OPENCV ---
 try:
@@ -41,63 +42,49 @@ def load_selected_font(font_name: str, font_size: int):
 # -------------------------------------------------------------------
 # 2. XỬ LÝ ÁNH SÁNG & MÀU SẮC NÂNG CAO
 # -------------------------------------------------------------------
+
 def adjust_image_advanced(
-    input_path: str,
-    output_path: str,
-    exposure: float = 0.0,
-    contrast: int = 0,
-    highlights: int = 0,
-    shadows: int = 0,
-    saturation: int = 0,
-    clarity: int = 0,
-    dehaze: int = 0,
-    sharpening: int = 0
-) -> None:
-    img_pil = Image.open(input_path).convert("RGB")
-    img = np.array(img_pil)
+        image: Image.Image,
+        brightness: float = 1.0,
+        contrast: float = 1.0,
+        saturation: float = 1.0,
+        sharpness: float = 1.0
+) -> Image.Image:
+    """
+    Điều chỉnh các thông số ảnh nâng cao.
 
-    # A. Exposure
-    if exposure != 0:
-        factor = 2.0 ** exposure
-        img = np.clip(img * factor, 0, 255).astype(np.uint8)
+    :param image: Đối tượng PIL Image.
+    :param brightness: Hệ số độ sáng (1.0 là mặc định).
+    :param contrast: Hệ số độ tương phản (1.0 là mặc định).
+    :param saturation: Hệ số độ bão hòa màu (1.0 là mặc định).
+    :param sharpness: Hệ số độ sắc nét (1.0 là mặc định).
+    :return: PIL Image đã qua xử lý.
+    """
+    try:
+        # 1. Điều chỉnh độ sáng (Brightness)
+        if brightness != 1.0:
+            enhancer = ImageEnhance.Brightness(image)
+            image = enhancer.enhance(brightness)
 
-    # B. Contrast
-    if contrast != 0:
-        f = 131 * (contrast + 127) / (127 * (131 - contrast))
-        img = np.clip(128 + f * (img.astype(np.float32) - 128), 0, 255).astype(np.uint8)
+        # 2. Điều chỉnh độ tương phản (Contrast)
+        if contrast != 1.0:
+            enhancer = ImageEnhance.Contrast(image)
+            image = enhancer.enhance(contrast)
 
-    # C. Shadows & Highlights (Yêu cầu OpenCV)
-    if (shadows != 0 or highlights != 0) and cv2 is not None:
-        lab = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
-        l, a, b_chan = cv2.split(lab)
-        l_float = l.astype(np.float32)
+        # 3. Điều chỉnh độ bão hòa màu (Color/Saturation)
+        if saturation != 1.0:
+            enhancer = ImageEnhance.Color(image)
+            image = enhancer.enhance(saturation)
 
-        if shadows > 0:
-            shadow_mask = np.clip((100.0 - l_float) / 100.0, 0, 1)
-            l_float += shadow_mask * (shadows * 0.8)
-        if highlights < 0:
-            highlight_mask = np.clip(l_float / 255.0, 0, 1)
-            l_float += highlight_mask * (highlights * 0.8)
+        # 4. Điều chỉnh độ sắc nét (Sharpness)
+        if sharpness != 1.0:
+            enhancer = ImageEnhance.Sharpness(image)
+            image = enhancer.enhance(sharpness)
 
-        l_final = np.clip(l_float, 0, 255).astype(np.uint8)
-        lab = cv2.merge([l_final, a, b_chan])
-        img = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        return image
 
-    # D. Saturation
-    if saturation != 0 and cv2 is not None:
-        hsv = cv2.cvtColor(img, cv2.COLOR_RGB2HSV).astype(np.float32)
-        sat_factor = 1.0 + (saturation / 100.0)
-        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_factor, 0, 255)
-        img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2RGB)
-
-    # E. Sharpening & Clarity
-    if sharpening > 0 and cv2 is not None:
-        strength = sharpening / 100.0
-        blurred = cv2.GaussianBlur(img, (0, 0), 3)
-        img = cv2.addWeighted(img, 1.0 + strength, blurred, -strength, 0)
-
-    res_pil = Image.fromarray(img)
-    res_pil.save(output_path, format="PNG")
+    except Exception as e:
+        raise RuntimeError(f"Lỗi khi điều chỉnh ảnh nâng cao: {str(e)}")
 
 # -------------------------------------------------------------------
 # 3. HÀM CẮT ÁNH (CROP IMAGE)
