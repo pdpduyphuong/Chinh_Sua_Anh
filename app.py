@@ -1,4 +1,4 @@
-# app.py - PDP Photo Editor Web
+# app.py - PDP Photo Editor Web (Tích hợp Kéo thả vùng chọn bằng Chuột)
 import os
 import sys
 import shutil
@@ -13,6 +13,7 @@ if str(CURRENT_DIR) not in sys.path:
 import numpy as np
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
+from streamlit_cropper import st_cropper
 
 try:
     from core import (
@@ -131,9 +132,6 @@ for param, (sk, default_val) in SLIDER_KEYS.items():
 if "ai_analysis" not in st.session_state:
     st.session_state["ai_analysis"] = None
 
-if "crop_coords_store" not in st.session_state:
-    st.session_state["crop_coords_store"] = None
-
 if "active_filter" not in st.session_state:
     st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
 
@@ -162,7 +160,6 @@ if uploaded_file is not None:
         image.save(FILTER_BASE_PATH)
         st.session_state["last_uploaded"] = uploaded_file.name
         st.session_state["processed_img"] = INPUT_PATH
-        st.session_state["crop_coords_store"] = None
         st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
 
         # Reset lại các slider về mặc định khi upload ảnh mới
@@ -438,132 +435,48 @@ if uploaded_file is not None:
                 st.rerun()
 
         st.markdown("---")
-        st.markdown("### 2. Cắt ảnh (Crop Image)")
+        st.markdown("### 2. Cắt ảnh bằng chuột (Interactive Drag & Drop Crop)")
+        st.info("💡 **Hướng dẫn:** Sử dụng chuột để **kéo di chuyển khung** hoặc **kéo các góc** để thay đổi kích thước vùng cắt trực tiếp trên ảnh bên dưới.")
 
-        crop_mode = st.radio(
-            "Chọn phương thức cắt ảnh:",
-            ["Tỉ lệ cố định (Aspect Ratio)", "Kéo chỉnh Tọa độ Trực quan (Live Preview Sliders)",
-             "Tùy chỉnh Pixel chính xác"],
-            horizontal=True
-        )
+        col_crp_opt1, col_crp_opt2 = st.columns(2)
+        with col_crp_opt1:
+            aspect_choice = st.selectbox(
+                "Tỉ lệ khung cắt (Aspect Ratio):",
+                ["Tự do (Free)", "1:1 (Vuông)", "4:3 (Chuẩn)", "16:9 (Màn hình rộng)", "3:4 (Chân dung)", "9:16 (Story/Reels)"]
+            )
+        with col_crp_opt2:
+            box_color = st.color_picker("Màu viền khung cắt", "#FF0000")
+
+        # Map tỉ lệ khung cắt
+        aspect_dict = {
+            "Tự do (Free)": None,
+            "1:1 (Vuông)": (1, 1),
+            "4:3 (Chuẩn)": (4, 3),
+            "16:9 (Màn hình rộng)": (16, 9),
+            "3:4 (Chân dung)": (3, 4),
+            "9:16 (Story/Reels)": (9, 16)
+        }
+        selected_ratio = aspect_dict[aspect_choice]
 
         curr_img = Image.open(INPUT_PATH).convert("RGB")
-        orig_w, orig_h = curr_img.size
 
-        # 1. TỈ LỆ CỐ ĐỊNH (ASPECT RATIO)
-        if crop_mode == "Tỉ lệ cố định (Aspect Ratio)":
-            ratio_option = st.selectbox(
-                "Chọn tỉ lệ cắt mong muốn:",
-                ["1:1 (Vuông)", "4:3 (Chuẩn)", "16:9 (Màn hình rộng)", "3:4 (Chân dung)", "9:16 (Story/Reels)"]
-            )
+        # Widget Cắt ảnh tương tác bằng chuột
+        cropped_result = st_cropper(
+            curr_img,
+            realtime_update=True,
+            box_color=box_color,
+            aspect_ratio=selected_ratio,
+            key="interactive_cropper"
+        )
 
-            ratio_map = {
-                "1:1 (Vuông)": (1, 1),
-                "4:3 (Chuẩn)": (4, 3),
-                "16:9 (Màn hình rộng)": (16, 9),
-                "3:4 (Chân dung)": (3, 4),
-                "9:16 (Story/Reels)": (9, 16),
-            }
-            rw, rh = ratio_map[ratio_option]
-            target_aspect = rw / rh
-            current_aspect = orig_w / orig_h
+        st.write("🖼️ **Xem trước vùng cắt:**")
+        st.image(cropped_result, caption="Vùng ảnh đã chọn", use_container_width=False, width=300)
 
-            if current_aspect > target_aspect:
-                new_w = int(orig_h * target_aspect)
-                new_h = orig_h
-            else:
-                new_w = orig_w
-                new_h = int(orig_w / target_aspect)
-
-            left = (orig_w - new_w) // 2
-            top = (orig_h - new_h) // 2
-            right = left + new_w
-            bottom = top + new_h
-
-            preview_img = curr_img.copy()
-            draw = ImageDraw.Draw(preview_img)
-            draw.rectangle([left, top, right, bottom], outline="red", width=max(3, int(orig_w / 300)))
-
-            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", use_container_width=True)
-
-            if st.button("✂️ Áp Dụng Cắt Theo Tỉ Lệ"):
-                crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
-                update_input_image_and_refresh()
-                st.success("Đã cắt ảnh thành công!")
-                st.rerun()
-
-        # 2. KÉO CHỈNH TRỰC QUAN (LIVE PREVIEW SLIDERS)
-        elif crop_mode == "Kéo chỉnh Tọa độ Trực quan (Live Preview Sliders)":
-            st.info("💡 **Hướng dẫn:** Điều chỉnh các thanh trượt bên dưới để thu hẹp vùng cắt khung màu đỏ trực quan trên ảnh.")
-
-            col_sl1, col_sl2 = st.columns(2)
-
-            with col_sl1:
-                crop_x_range = st.slider(
-                    "Cắt lề Trái & Phải (Pixel X):",
-                    min_value=0,
-                    max_value=orig_w,
-                    value=(0, orig_w),
-                    step=max(1, orig_w // 100)
-                )
-            with col_sl2:
-                crop_y_range = st.slider(
-                    "Cắt lề Trên & Dưới (Pixel Y):",
-                    min_value=0,
-                    max_value=orig_h,
-                    value=(0, orig_h),
-                    step=max(1, orig_h // 100)
-                )
-
-            left_px, right_px = crop_x_range
-            top_px, bottom_px = crop_y_range
-
-            valid_crop = (right_px - left_px >= 10) and (bottom_px - top_px >= 10)
-
-            preview_img = curr_img.copy()
-            draw = ImageDraw.Draw(preview_img)
-
-            line_width = max(3, int(min(orig_w, orig_h) / 200))
-            draw.rectangle([left_px, top_px, right_px, bottom_px], outline="red", width=line_width)
-
-            st.image(
-                preview_img,
-                caption=f"📍 Khung cắt được chọn: W = {right_px - left_px}px, H = {bottom_px - top_px}px",
-                use_container_width=True
-            )
-
-            if valid_crop:
-                if st.button("✂️ Cắt Vùng Đã Chọn"):
-                    crop_image(INPUT_PATH, OUTPUT_PATH, (left_px, top_px, right_px, bottom_px))
-                    update_input_image_and_refresh()
-                    st.success("Đã cắt vùng chọn thành công!")
-                    st.rerun()
-            else:
-                st.warning("⚠️ Kích thước khung cắt quá nhỏ! Vui lòng mở rộng thanh trượt.")
-
-        # 3. TÙY CHỈNH PIXEL CHÍNH XÁC
-        else:
-            col_cr1, col_cr2 = st.columns(2)
-            with col_cr1:
-                crop_x = st.number_input("Tọa độ X (Góc trái trên)", 0, max(0, orig_w - 10), 0)
-                crop_y = st.number_input("Tọa độ Y (Góc trái trên)", 0, max(0, orig_h - 10), 0)
-            with col_cr2:
-                crop_w = st.number_input("Chiều rộng (Width)", 10, orig_w - crop_x, orig_w - crop_x)
-                crop_h = st.number_input("Chiều cao (Height)", 10, orig_y - crop_y, orig_h - crop_y)
-
-            right_px = crop_x + crop_w
-            bottom_px = crop_y + crop_h
-
-            preview_img = curr_img.copy()
-            draw = ImageDraw.Draw(preview_img)
-            draw.rectangle([crop_x, crop_y, right_px, bottom_px], outline="red", width=max(3, int(orig_w / 300)))
-            st.image(preview_img, caption=f"Vùng cắt xem trước: {crop_w} x {crop_h} px", use_container_width=True)
-
-            if st.button("✂️ Áp dụng Cắt theo Pixel"):
-                crop_image(INPUT_PATH, OUTPUT_PATH, (crop_x, crop_y, right_px, bottom_px))
-                update_input_image_and_refresh()
-                st.success("Đã cắt thành công!")
-                st.rerun()
+        if st.button("✂️ Áp Dụng Cắt Ảnh Vùng Chọn"):
+            cropped_result.save(OUTPUT_PATH)
+            update_input_image_and_refresh()
+            st.success("Đã cắt ảnh theo vùng chọn chuột thành công!")
+            st.rerun()
 
     # --- KẾT QUẢ HIỂN THỊ (CỘT 2) ---
     with col2:
