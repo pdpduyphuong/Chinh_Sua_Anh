@@ -1,10 +1,10 @@
-# app.py
+# app.py - PDP Photo Editor Web
 import os
 import sys
 import shutil
 import tempfile
-from PIL import Image, ImageDraw
 from pathlib import Path
+from PIL import Image, ImageDraw
 
 CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
@@ -12,7 +12,6 @@ if str(CURRENT_DIR) not in sys.path:
 
 import numpy as np
 import streamlit as st
-from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 
 try:
@@ -32,10 +31,17 @@ except ImportError as e:
     st.info("💡 Vui lòng kiểm tra lại file core.py và requirements.txt.")
     st.stop()
 
-st.set_page_config(page_title="PDP Photo Editor Web", layout="wide")
+# -------------------------------------------------------------
+# CẤU HÌNH TRANG & CÁC HẰNG SỐ
+# -------------------------------------------------------------
+st.set_page_config(
+    page_title="PDP Photo Editor Web",
+    page_icon="🖼️",
+    layout="wide"
+)
+
 st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
 
-# Cấu hình đường dẫn tệp tạm thời
 TEMP_DIR = tempfile.gettempdir()
 INPUT_PATH = os.path.join(TEMP_DIR, "web_input_temp.png")
 OUTPUT_PATH = os.path.join(TEMP_DIR, "web_output_temp.png")
@@ -51,6 +57,7 @@ def update_input_image_and_refresh():
 
 
 def analyze_image_ai(image_path):
+    """Phân tích các chỉ số ảnh và đưa ra gợi ý thông số chỉnh sửa bằng AI/OpenCV."""
     pil_img = Image.open(image_path).convert("RGB")
     img_np = np.array(pil_img)
 
@@ -103,7 +110,7 @@ def analyze_image_ai(image_path):
     }
 
 
-# Session State
+# Quản lý Session State
 SLIDER_KEYS = {
     "exposure": ("exp_s", 0.0),
     "contrast": ("cnt_s", 0),
@@ -132,6 +139,7 @@ if "active_filter" not in st.session_state:
 
 
 def apply_ai_suggestions():
+    """Gán giá trị đề xuất từ AI vào các slider tương ứng trong Session State."""
     if st.session_state["ai_analysis"]:
         ai = st.session_state["ai_analysis"]
         for param, (sk, _) in SLIDER_KEYS.items():
@@ -140,18 +148,28 @@ def apply_ai_suggestions():
             st.session_state[sk] = val
 
 
+# -------------------------------------------------------------
+# THANH BÊN (SIDEBAR) & TẢI ẢNH
+# -------------------------------------------------------------
 st.sidebar.header("📂 Tải Ảnh Lên")
 uploaded_file = st.sidebar.file_uploader("Chọn tệp ảnh", type=["jpg", "jpeg", "png", "webp"])
 
 if uploaded_file is not None:
     if "last_uploaded" not in st.session_state or st.session_state["last_uploaded"] != uploaded_file.name:
-        image = Image.open(uploaded_file)
+        image = Image.open(uploaded_file).convert("RGB")
         image.save(INPUT_PATH)
+        image.save(OUTPUT_PATH)
         image.save(FILTER_BASE_PATH)
         st.session_state["last_uploaded"] = uploaded_file.name
         st.session_state["processed_img"] = INPUT_PATH
         st.session_state["crop_coords_store"] = None
         st.session_state["active_filter"] = "Gốc (Original / Không bộ lọc)"
+
+        # Reset lại các slider về mặc định khi upload ảnh mới
+        for param, (sk, default_val) in SLIDER_KEYS.items():
+            st.session_state[param] = default_val
+            st.session_state[sk] = default_val
+        st.session_state["ai_analysis"] = None
 
     image = Image.open(INPUT_PATH)
 
@@ -160,6 +178,9 @@ if uploaded_file is not None:
         st.subheader("Ảnh Gốc / Hiện Tại")
         st.image(image, use_container_width=True)
 
+    # -------------------------------------------------------------
+    # CÁC TAB CHỨC NĂNG
+    # -------------------------------------------------------------
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "✨ Chỉnh Sáng & AI",
         "🎨 Bộ Lọc Màu",
@@ -265,7 +286,7 @@ if uploaded_file is not None:
                 except Exception as err:
                     st.error(f"❌ Lỗi khi xử lý ảnh: {err}")
 
-    # --- TAB 2: BỘ LỌC MÀU (ĐÃ FIX TÍNH NĂNG KHÔI PHỤC) ---
+    # --- TAB 2: BỘ LỌC MÀU ---
     with tab2:
         st.markdown("### Chọn Bộ Lọc Nghệ Thuật")
 
@@ -286,11 +307,9 @@ if uploaded_file is not None:
         col_f1, col_f2 = st.columns([1, 1])
         with col_f1:
             if st.button("✨ Áp Dụng / Đổi Bộ Lọc"):
-                # Luôn dùng FILTER_BASE_PATH làm gốc để áp dụng filter, tránh bị đè hiệu ứng cũ
                 source_path = FILTER_BASE_PATH if os.path.exists(FILTER_BASE_PATH) else INPUT_PATH
                 apply_filter(source_path, OUTPUT_PATH, selected_filter)
 
-                # Cập nhật ảnh làm việc
                 shutil.copy(OUTPUT_PATH, INPUT_PATH)
                 st.session_state["processed_img"] = OUTPUT_PATH
                 st.session_state["active_filter"] = selected_filter
@@ -329,7 +348,6 @@ if uploaded_file is not None:
         disp_width = min(bg_width, 700)
         disp_height = int(bg_height * (disp_width / bg_width))
 
-        # Tỉ lệ quy đổi giữa Canvas web và Ảnh thực tế
         scale_ratio = bg_width / disp_width
         actual_font_size = int(font_size_ui * scale_ratio)
 
@@ -345,7 +363,7 @@ if uploaded_file is not None:
         )
 
         pos_x, pos_y = 50, 50
-        if canvas_result.json_data is not None and len(canvas_result.json_data["objects"]) > 0:
+        if canvas_result.json_data is not None and len(canvas_result.json_data.get("objects", [])) > 0:
             last_point = canvas_result.json_data["objects"][-1]
             pos_x = int(last_point["left"] * scale_ratio)
             pos_y = int(last_point["top"] * scale_ratio)
@@ -361,7 +379,7 @@ if uploaded_file is not None:
                     text=input_text,
                     position=(pos_x, pos_y),
                     font_name=font_name,
-                    font_size=actual_font_size,  # Truyền kích thước chuẩn đã tính tỉ lệ
+                    font_size=actual_font_size,
                     color=rgb_color
                 )
                 update_input_image_and_refresh()
@@ -400,7 +418,7 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"Lỗi tách nền: {e}")
 
-    # --- TAB 6: XOAY, LẬT & CẮT ÁNH (PHƯƠNG ÁN MỚI 100% CỰC KỲ ỔN ĐỊNH) ---
+    # --- TAB 6: XOAY, LẬT & CẮT ÁNH ---
     with tab6:
         st.markdown("### 1. Xoay và lật hướng ảnh")
         c_rot1, c_rot2 = st.columns([3, 1])
@@ -432,9 +450,7 @@ if uploaded_file is not None:
         curr_img = Image.open(INPUT_PATH).convert("RGB")
         orig_w, orig_h = curr_img.size
 
-        # -------------------------------------------------------------
-        # CHẾ ĐỘ 1: TỈ LỆ CỐ ĐỊNH (ASPECT RATIO)
-        # -------------------------------------------------------------
+        # 1. TỈ LỆ CỐ ĐỊNH (ASPECT RATIO)
         if crop_mode == "Tỉ lệ cố định (Aspect Ratio)":
             ratio_option = st.selectbox(
                 "Chọn tỉ lệ cắt mong muốn:",
@@ -464,12 +480,11 @@ if uploaded_file is not None:
             right = left + new_w
             bottom = top + new_h
 
-            # Vẽ khung xem trước lên ảnh
             preview_img = curr_img.copy()
             draw = ImageDraw.Draw(preview_img)
             draw.rectangle([left, top, right, bottom], outline="red", width=max(3, int(orig_w / 300)))
 
-            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", use_column_width=True)
+            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", use_container_width=True)
 
             if st.button("✂️ Áp Dụng Cắt Theo Tỉ Lệ"):
                 crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
@@ -477,12 +492,9 @@ if uploaded_file is not None:
                 st.success("Đã cắt ảnh thành công!")
                 st.rerun()
 
-        # -------------------------------------------------------------
-        # CHẾ ĐỘ 2: KÉO CHỈNH TRỰC QUAN (LIVE PREVIEW SLIDERS - ĐÃ TỐI ƯU CỰC MƯỢT)
-        # -------------------------------------------------------------
+        # 2. KÉO CHỈNH TRỰC QUAN (LIVE PREVIEW SLIDERS)
         elif crop_mode == "Kéo chỉnh Tọa độ Trực quan (Live Preview Sliders)":
-            st.info(
-                "💡 **Hướng dẫn:** Điều chỉnh các thanh trượt bên dưới để thu hẹp vùng cắt khung màu đỏ trực quan trên ảnh.")
+            st.info("💡 **Hướng dẫn:** Điều chỉnh các thanh trượt bên dưới để thu hẹp vùng cắt khung màu đỏ trực quan trên ảnh.")
 
             col_sl1, col_sl2 = st.columns(2)
 
@@ -506,20 +518,19 @@ if uploaded_file is not None:
             left_px, right_px = crop_x_range
             top_px, bottom_px = crop_y_range
 
-            # Kiểm tra đảm bảo khung cắt hợp lệ (độ rộng/cao > 10px)
             valid_crop = (right_px - left_px >= 10) and (bottom_px - top_px >= 10)
 
-            # Vẽ khung màu đỏ xem trước trực tiếp
             preview_img = curr_img.copy()
             draw = ImageDraw.Draw(preview_img)
 
-            # Tính độ dày viền đỏ phù hợp với độ phân giải ảnh
             line_width = max(3, int(min(orig_w, orig_h) / 200))
             draw.rectangle([left_px, top_px, right_px, bottom_px], outline="red", width=line_width)
 
-            st.image(preview_img,
-                     caption=f"📍 Khung cắt được chọn: W = {right_px - left_px}px, H = {bottom_px - top_px}px",
-                     use_column_width=True)
+            st.image(
+                preview_img,
+                caption=f"📍 Khung cắt được chọn: W = {right_px - left_px}px, H = {bottom_px - top_px}px",
+                use_container_width=True
+            )
 
             if valid_crop:
                 if st.button("✂️ Cắt Vùng Đã Chọn"):
@@ -530,9 +541,7 @@ if uploaded_file is not None:
             else:
                 st.warning("⚠️ Kích thước khung cắt quá nhỏ! Vui lòng mở rộng thanh trượt.")
 
-        # -------------------------------------------------------------
-        # CHẾ ĐỘ 3: TÙY CHỈNH PIXEL CHÍNH XÁC
-        # -------------------------------------------------------------
+        # 3. TÙY CHỈNH PIXEL CHÍNH XÁC
         else:
             col_cr1, col_cr2 = st.columns(2)
             with col_cr1:
@@ -540,17 +549,15 @@ if uploaded_file is not None:
                 crop_y = st.number_input("Tọa độ Y (Góc trái trên)", 0, max(0, orig_h - 10), 0)
             with col_cr2:
                 crop_w = st.number_input("Chiều rộng (Width)", 10, orig_w - crop_x, orig_w - crop_x)
-                crop_h = st.number_input("Chiều cao (Height)", 10, orig_h - crop_y, orig_h - crop_y)
+                crop_h = st.number_input("Chiều cao (Height)", 10, orig_y - crop_y, orig_h - crop_y)
 
             right_px = crop_x + crop_w
             bottom_px = crop_y + crop_h
 
-            # Vẽ khung xem trước
             preview_img = curr_img.copy()
             draw = ImageDraw.Draw(preview_img)
-            draw.rectangle([crop_x, crop_y, right_px, bottom_px], outline="red",
-                           width=max(3, int(orig_w / 300)))
-            st.image(preview_img, caption=f"Vùng cắt xem trước: {crop_w} x {crop_h} px", use_column_width=True)
+            draw.rectangle([crop_x, crop_y, right_px, bottom_px], outline="red", width=max(3, int(orig_w / 300)))
+            st.image(preview_img, caption=f"Vùng cắt xem trước: {crop_w} x {crop_h} px", use_container_width=True)
 
             if st.button("✂️ Áp dụng Cắt theo Pixel"):
                 crop_image(INPUT_PATH, OUTPUT_PATH, (crop_x, crop_y, right_px, bottom_px))
