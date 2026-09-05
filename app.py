@@ -12,7 +12,13 @@ from core import (
     crop_image,
     remove_background_ai,
 )
-
+# Import hàm phân tích và chỉnh ảnh từ core.py
+from core import (
+    manual_adjust,
+    ai_analyze_image,
+    resize_image,
+    remove_background
+)
 # Cấu hình trang Web
 st.set_page_config(page_title="PDP Photo Editor Web", layout="wide")
 st.title("🖼️ PDP Chỉnh Sửa Ảnh Trực Tuyến")
@@ -139,3 +145,85 @@ if uploaded_file is not None:
                 )
 else:
     st.info("Vui lòng tải một tệp ảnh lên từ thanh bên (Sidebar) để bắt đầu chỉnh sửa.")
+st.set_page_config(page_title="AI Photo Editor Pro", layout="wide")
+st.title("🖼️ AI Photo Editor - Chỉnh Sửa & Tối Ưu Ảnh")
+
+# 1. Khởi tạo Session State để lưu trữ giá trị của Slider
+if "slider_brightness" not in st.session_state:
+    st.session_state.slider_brightness = 0
+
+if "slider_contrast" not in st.session_state:
+    st.session_state.slider_contrast = 1.0
+
+if "ai_analysis_result" not in st.session_state:
+    st.session_state.ai_analysis_result = None
+
+
+# Hàm callback khi bấm "Áp dụng thông số AI"
+def apply_ai_params():
+    if st.session_state.ai_analysis_result:
+        st.session_state.slider_brightness = st.session_state.ai_analysis_result["suggested_brightness"]
+        st.session_state.slider_contrast = st.session_state.ai_analysis_result["suggested_contrast"]
+        st.success("✅ Đã áp dụng thông số AI gợi ý vào thanh điều khiển!")
+
+
+# Upload File
+uploaded_file = st.file_uploader("Tải ảnh lên để bắt đầu:", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    image_pil = Image.open(uploaded_file).convert("RGB")
+    image_np = np.array(image_pil)
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.subheader("🖼️ Ảnh Gốc")
+        st.image(image_pil, use_container_width=True)
+
+    # BẢNG ĐIỀU KHIỂN BÊN THANH SIDEBAR (HOẶC TAB CHỈNH SÁNG)
+    st.sidebar.header("🎛️ Chỉnh Sáng & Chi Tiết")
+
+    # ==========================================
+    # KHU VỰC PHÂN TÍCH AI
+    # ==========================================
+    with st.sidebar.expander("🤖 **Phân tích ảnh bằng AI**", expanded=True):
+        if st.button("🔍 Bắt đầu phân tích AI"):
+            with st.spinner("AI đang đọc thông số ảnh..."):
+                st.session_state.ai_analysis_result = ai_analyze_image(image_np)
+
+        # Hiển thị kết quả sau khi phân tích
+        if st.session_state.ai_analysis_result:
+            res = st.session_state.ai_analysis_result
+            st.markdown("---")
+            st.write(f"📊 **Chỉ số gốc:** Độ sáng `{res['mean_brightness']}`, Tương phản `{res['std_contrast']}`")
+            st.write(
+                f"💡 **AI gợi ý:** Độ sáng `{res['suggested_brightness']:+d}`, Tương phản `{res['suggested_contrast']}`")
+
+            # Nút bấm chuyển thông số AI vào Slider
+            st.button("👉 Áp dụng thông số AI", on_click=apply_ai_params)
+
+    st.sidebar.markdown("---")
+
+    # ==========================================
+    # THANH SLIDER ĐIỀU CHỈNH THỦ CÔNG / ÁP DỤNG TỪ AI
+    # ==========================================
+    brightness = st.sidebar.slider(
+        "Độ sáng (Brightness)",
+        -100, 100,
+        key="slider_brightness"
+    )
+
+    contrast = st.sidebar.slider(
+        "Độ tương phản (Contrast)",
+        0.5, 2.0,
+        key="slider_contrast",
+        step=0.05
+    )
+
+    # Thực hiện chỉnh sửa ảnh theo giá trị hiện tại của Slider
+    processed_np = manual_adjust(image_np, brightness=brightness, contrast=contrast)
+
+    # Hiển thị ảnh kết quả
+    with col_right:
+        st.subheader("✨ Ảnh Kết Quả")
+        st.image(processed_np, use_container_width=True)

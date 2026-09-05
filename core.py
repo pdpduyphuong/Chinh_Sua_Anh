@@ -381,3 +381,43 @@ def add_icon_overlay(image_path, output_path, icon_path, pos_x=50, pos_y=50, sca
             combined.convert("RGB").save(output_path)
         else:
             combined.save(output_path)
+def ai_analyze_image(image_np):
+    """
+    Phân tích ảnh và trả về BỘ THÔNG SỐ GỢI Ý (không trực tiếp biến đổi ảnh).
+    """
+    if len(image_np.shape) == 3 and image_np.shape[2] == 3:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+    elif len(image_np.shape) == 3 and image_np.shape[2] == 4:
+        gray = cv2.cvtColor(image_np, cv2.COLOR_RGBA2GRAY)
+    else:
+        gray = image_np
+
+    # 1. Tính toán chỉ số cơ bản
+    mean_brightness = np.mean(gray) # Độ sáng trung bình
+    std_contrast = np.std(gray)     # Độ tương phản
+
+    # 2. Quy đổi ra thông số tương ứng với các Slider của người dùng
+    # Slider Độ sáng: -100 đến 100
+    suggested_brightness = 0
+    if mean_brightness < 110:
+        suggested_brightness = int((125 - mean_brightness) * 0.8)
+    elif mean_brightness > 160:
+        suggested_brightness = -int((mean_brightness - 145) * 0.7)
+
+    # Slider Tương phản: 0.5 đến 2.0
+    suggested_contrast = 1.0
+    if std_contrast < 45:
+        suggested_contrast = round(1.0 + (50 - std_contrast) / 80.0, 2)
+    elif std_contrast > 75:
+        suggested_contrast = round(1.0 - (std_contrast - 70) / 120.0, 2)
+
+    # Giới hạn giá trị nằm trong khoảng hợp lệ của Slider
+    suggested_brightness = max(-100, min(100, suggested_brightness))
+    suggested_contrast = max(0.5, min(2.0, suggested_contrast))
+
+    return {
+        "mean_brightness": round(mean_brightness, 1),
+        "std_contrast": round(std_contrast, 1),
+        "suggested_brightness": suggested_brightness,
+        "suggested_contrast": suggested_contrast
+    }
