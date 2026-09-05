@@ -194,7 +194,7 @@ if uploaded_file is not None:
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("Ảnh Gốc / Hiện Tại")
-        st.image(image, width="stretch")
+        st.image(image, use_container_width=True)
 
     # -------------------------------------------------------------
     # CÁC TAB CHỨC NĂNG
@@ -430,9 +430,10 @@ if uploaded_file is not None:
 
     # --- TAB 5: TÁCH NỀN AI ---
     with tab5:
-        st.markdown("### Tách nền tự động bằng AI (rembg)")
+        st.markdown("### Tách nền tự động bằng AI (U2Net / Rembg)")
+        st.caption("Hệ thống tự động sử dụng mô hình U2NetP tối ưu tốc độ và độ chính xác.")
         if st.button("Bắt đầu Tách Nền"):
-            with st.spinner("Đang tách nền..."):
+            with st.spinner("AI đang tách nền... (lần đầu tiên có thể mất vài giây để tải mô hình nhẹ)"):
                 try:
                     remove_background_ai(INPUT_PATH, OUTPUT_PATH)
                     update_input_image_and_refresh()
@@ -537,7 +538,7 @@ if uploaded_file is not None:
             draw = ImageDraw.Draw(preview_img)
             draw.rectangle([left, top, right, bottom], outline="red", width=max(3, int(orig_w / 300)))
 
-            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", width="stretch")
+            st.image(preview_img, caption=f"Vùng cắt xem trước: {new_w} x {new_h} px", use_container_width=True)
 
             if st.button("✂️ Áp Dụng Cắt Theo Tỉ Lệ"):
                 crop_image(INPUT_PATH, OUTPUT_PATH, (left, top, right, bottom))
@@ -550,7 +551,7 @@ if uploaded_file is not None:
         st.subheader("Kết Quả")
         if "processed_img" in st.session_state and os.path.exists(st.session_state["processed_img"]):
             res_img = Image.open(st.session_state["processed_img"])
-            st.image(res_img, width="stretch")
+            st.image(res_img, use_container_width=True)
 
             with open(st.session_state["processed_img"], "rb") as file:
                 st.download_button(

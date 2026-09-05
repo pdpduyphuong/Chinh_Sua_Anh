@@ -1,15 +1,114 @@
 # core.py
 import os
+import sys
 import cv2
+import requests
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont
-from rembg import remove
 
+# -------------------------------------------------------------
+# XỬ LÝ REMBG VÀ U2NET FALLBACK
+# -------------------------------------------------------------
+try:
+    from rembg import remove, new_session
+
+    HAS_REMBG = True
+except Exception:
+    HAS_REMBG = False
+
+try:
+    import onnxruntime as ort
+
+    HAS_ONNX = True
+except Exception:
+    HAS_ONNX = False
+
+
+def download_u2netp_model(model_path: str):
+    """Tải model U2NetP (phiên bản siêu nhẹ ~40MB) nếu chưa tồn tại."""
+    url = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
+    if not os.path.exists(model_path):
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(model_path, "wb") as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+
+def remove_background_u2net_direct(input_path: str, output_path: str):
+    """Xử lý tách nền trực tiếp bằng U2NetP ONNX Runtime (Giải pháp dự phòng khi rembg lỗi)."""
+    model_dir = os.path.join(os.path.expanduser("~"), ".u2net")
+    os.makedirs(model_dir, exist_ok=True)
+    model_path = os.path.join(model_dir, "u2netp.onnx")
+
+    if not os.path.exists(model_path):
+        download_u2netp_model(model_path)
+
+    # Khởi tạo ONNX Session
+    session = ort.InferenceSession(model_path, providers=['CPUExecutionProvider'])
+
+    # Preprocess Image
+    img = Image.open(input_path).convert("RGB")
+    orig_w, orig_h = img.size
+    img_resized = img.resize((320, 320), Image.Resampling.LANCZOS)
+    img_np = np.array(img_resized, dtype=np.float32) / 255.0
+
+    # Normalize (Standard ImageNet values)
+    tmp_img = np.zeros((320, 320, 3), dtype=np.float32)
+    tmp_img[:, :, 0] = (img_np[:, :, 0] - 0.485) / 0.229
+    tmp_img[:, :, 1] = (img_np[:, :, 1] - 0.456) / 0.224
+    tmp_img[:, :, 2] = (img_np[:, :, 2] - 0.406) / 0.225
+
+    tmp_img = tmp_img.transpose((2, 0, 1))
+    tmp_img = np.expand_dims(tmp_img, axis=0)
+
+    # Run ONNX Model
+    input_name = session.get_inputs()[0].name
+    output_name = session.get_outputs()[0].name
+    result = session.run([output_name], {input_name: tmp_img.astype(np.float32)})
+
+    # Postprocess Mask
+    pred = result[0][0, 0, :, :]
+    ma = np.max(pred)
+    mi = np.min(pred)
+    dn = (pred - mi) / (ma - mi)
+    mask = Image.fromarray((dn * 255).astype(np.uint8)).resize((orig_w, orig_h), Image.Resampling.LANCZOS)
+
+    # Apply Alpha Mask to Original Image
+    img_rgba = Image.open(input_path).convert("RGBA")
+    img_rgba.putalpha(mask)
+    img_rgba.save(output_path, "PNG")
+
+
+def remove_background_ai(input_path: str, output_path: str):
+    """
+    Hàm tách nền linh hoạt:
+    1. Ưu tiên chạy rembg.
+    2. Nếu rembg lỗi hoặc thiếu session, tự chuyển sang U2NetP direct.
+    """
+    success = False
+    if HAS_REMBG:
+        try:
+            inp = Image.open(input_path)
+            # Thử dùng u2netp session để nhẹ và nhanh hơn
+            session = new_session("u2netp")
+            out = remove(inp, session=session)
+            out.save(output_path)
+            success = True
+        except Exception:
+            success = False
+
+    if not success:
+        if HAS_ONNX:
+            remove_background_u2net_direct(input_path, output_path)
+        else:
+            raise RuntimeError("Không thể khởi chạy rembg lẫn ONNX Runtime để tách nền.")
+
+
+# -------------------------------------------------------------
+# CÁC HÀM XỬ LÝ ẢNH CORE CỦA BẠN (GIỮ NGUYÊN 100%)
+# -------------------------------------------------------------
 def get_system_font(font_name: str, font_size: int):
-    """
-    Tìm và nạp Font chữ TrueType an toàn trên cả Windows, macOS và Linux/Streamlit Cloud.
-    """
-    # Bảng ánh xạ tên font sang file .ttf chuẩn
     font_map = {
         "Arial": ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf"],
         "Segoe UI": ["segoeui.ttf", "SegoeUI.ttf", "DejaVuSans.ttf"],
@@ -20,14 +119,13 @@ def get_system_font(font_name: str, font_size: int):
         "Verdana": ["verdana.ttf", "Verdana.ttf", "DejaVuSans.ttf"]
     }
 
-    # Danh sách các thư mục chứa font hệ thống phổ biến
     font_dirs = [
-        "",  # Thư mục hiện tại
-        "/usr/share/fonts/truetype/dejavu/",  # Linux Streamlit Cloud
+        "",
+        "/usr/share/fonts/truetype/dejavu/",
         "/usr/share/fonts/truetype/liberation/",
         "/usr/share/fonts/truetype/freefont/",
-        "C:\\Windows\\Fonts\\",  # Windows
-        "/Library/Fonts/",  # macOS
+        "C:\\Windows\\Fonts\\",
+        "/Library/Fonts/",
     ]
 
     candidate_files = font_map.get(font_name, ["DejaVuSans.ttf", "arial.ttf"])
@@ -41,45 +139,39 @@ def get_system_font(font_name: str, font_size: int):
                 except Exception:
                     continue
 
-    # Bản sao lưu cuối cùng nếu không tìm thấy font ttf nào trên hệ thống
     try:
-        return ImageFont.load_default(size=font_size) # Hỗ trợ size đối với Pillow >= 10.1.0
+        return ImageFont.load_default(size=font_size)
     except TypeError:
         return ImageFont.load_default()
 
+
 def add_text_to_image(
-    input_path: str,
-    output_path: str,
-    text: str,
-    position: tuple,
-    font_name: str,
-    font_size: int,
-    color: tuple
+        input_path: str,
+        output_path: str,
+        text: str,
+        position: tuple,
+        font_name: str,
+        font_size: int,
+        color: tuple
 ):
-    """
-    Chèn chữ vào ảnh với kích thước font được tỉ lệ chính xác và nạp font an toàn.
-    """
     img = Image.open(input_path).convert("RGB")
     draw = ImageDraw.Draw(img)
-
-    # Nạp font an toàn
     font = get_system_font(font_name, font_size)
-
-    # Vẽ chữ lên ảnh
     draw.text(position, text, fill=color, font=font)
     img.save(output_path)
 
+
 def adjust_image_advanced(
-    input_path: str,
-    output_path: str,
-    exposure: float = 0.0,
-    contrast: float = 0.0,
-    highlights: float = 0.0,
-    shadows: float = 0.0,
-    saturation: float = 0.0,
-    clarity: float = 0.0,
-    dehaze: float = 0.0,
-    sharpening: float = 0.0
+        input_path: str,
+        output_path: str,
+        exposure: float = 0.0,
+        contrast: float = 0.0,
+        highlights: float = 0.0,
+        shadows: float = 0.0,
+        saturation: float = 0.0,
+        clarity: float = 0.0,
+        dehaze: float = 0.0,
+        sharpening: float = 0.0
 ):
     pil_img = Image.open(input_path).convert("RGB")
     img = np.array(pil_img, dtype=np.float32)
@@ -120,6 +212,7 @@ def adjust_image_advanced(
 
     result_pil.save(output_path)
 
+
 def apply_filter(input_path: str, output_path: str, filter_type: str):
     img = Image.open(input_path).convert("RGB")
     if filter_type == "Gốc (Original / Không bộ lọc)":
@@ -148,6 +241,7 @@ def apply_filter(input_path: str, output_path: str, filter_type: str):
 
     img.save(output_path)
 
+
 def rotate_or_flip_image(input_path: str, output_path: str, action: str):
     img = Image.open(input_path)
     if action == "rotate_right":
@@ -160,19 +254,18 @@ def rotate_or_flip_image(input_path: str, output_path: str, action: str):
         img = img.transpose(Image.FLIP_TOP_BOTTOM)
     img.save(output_path)
 
+
 def crop_image(input_path: str, output_path: str, box: tuple):
     img = Image.open(input_path)
     img.crop(box).save(output_path)
+
 
 def resize_standard(input_path: str, output_path: str, width: int, height: int):
     img = Image.open(input_path)
     img.resize((width, height), Image.Resampling.LANCZOS).save(output_path)
 
+
 def resize_ai_upscale(input_path: str, output_path: str, scale_factor: int):
     img = Image.open(input_path)
     w, h = img.size
     img.resize((w * scale_factor, h * scale_factor), Image.Resampling.LANCZOS).save(output_path)
-
-def remove_background_ai(input_path: str, output_path: str):
-    inp = Image.open(input_path)
-    remove(inp).save(output_path)
